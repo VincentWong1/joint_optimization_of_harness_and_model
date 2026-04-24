@@ -1,4 +1,4 @@
-# joint_optimization_of_harness_and_model
+# The Theroy of Joint Optimization of Harness & Model
 
 harness engineering的开发工作可以概括为6个部分：
 1. context engineering
