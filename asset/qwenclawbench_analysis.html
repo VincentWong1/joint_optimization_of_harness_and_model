@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>QwenClawBench 底层框架分析 & OpenHands 兼容性评估</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif; line-height: 1.7; max-width: 1080px; margin: 30px auto; padding: 0 24px; color: #1f2937; background: #fafafa; }
+  h1 { color: #111827; border-bottom: 3px solid #4f46e5; padding-bottom: 8px; }
+  h2 { color: #1e3a8a; margin-top: 36px; border-left: 4px solid #4f46e5; padding-left: 10px; }
+  h3 { color: #1e40af; margin-top: 24px; }
+  h4 { color: #4338ca; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #be185d; }
+  pre { background: #1e293b; color: #e2e8f0; padding: 14px 18px; border-radius: 8px; overflow-x: auto; font-size: 0.85em; line-height: 1.5; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th, td { border: 1px solid #e5e7eb; padding: 10px 14px; text-align: left; vertical-align: top; }
+  th { background: #4f46e5; color: white; font-weight: 600; }
+  tr:nth-child(even) { background: #f9fafb; }
+  blockquote { border-left: 4px solid #f59e0b; padding: 10px 16px; background: #fef3c7; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .verdict { padding: 14px 18px; border-radius: 8px; margin: 16px 0; font-weight: 500; }
+  .verdict-bad { background: #fee2e2; border-left: 4px solid #dc2626; }
+  .verdict-warn { background: #fef3c7; border-left: 4px solid #f59e0b; }
+  .verdict-good { background: #d1fae5; border-left: 4px solid #059669; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.78em; font-weight: 600; margin-right: 4px; }
+  .badge-red { background: #fee2e2; color: #b91c1c; }
+  .badge-yellow { background: #fef3c7; color: #b45309; }
+  .badge-green { background: #d1fae5; color: #065f46; }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  ul li { margin: 4px 0; }
+  .toc { background: #eef2ff; padding: 14px 22px; border-radius: 8px; margin-bottom: 24px; }
+  .toc ol { margin: 6px 0; padding-left: 22px; }
+  .toc a { color: #4f46e5; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .footnote { font-size: 0.85em; color: #6b7280; }
+  .arch-diagram { background: #fff; border: 1px solid #e5e7eb; padding: 18px; border-radius: 8px; font-family: ui-monospace, "SF Mono", monospace; white-space: pre; overflow-x: auto; line-height: 1.4; }
+</style>
+</head>
+<body>
+
+<h1>QwenClawBench 底层框架分析与 OpenHands 兼容性评估</h1>
+
+<p class="footnote">分析对象：<a href="https://github.com/SKYLENAGE-AI/QwenClawBench">github.com/SKYLENAGE-AI/QwenClawBench</a> · 分析日期：2026-05-13 · 仓库版本：v1.1-100 · 分析者：Claude</p>
+
+<div class="toc">
+<strong>目录</strong>
+<ol>
+  <li><a href="#tldr">一句话结论</a></li>
+  <li><a href="#overview">仓库概览</a></li>
+  <li><a href="#stack">底层技术栈</a></li>
+  <li><a href="#arch">系统架构</a></li>
+  <li><a href="#core">核心实现剖析</a></li>
+  <li><a href="#task-format">任务定义格式</a></li>
+  <li><a href="#grading">评分机制</a></li>
+  <li><a href="#openhands-compat">OpenHands 兼容性评估</a></li>
+  <li><a href="#migration">迁移到 OpenHands 的工作量评估</a></li>
+  <li><a href="#recommend">建议与结论</a></li>
+</ol>
+</div>
+
+<h2 id="tldr">1. 一句话结论</h2>
+
+<div class="verdict verdict-bad">
+<strong>QwenClawBench 与 OpenHands <u>不能直接兼容</u>，必须做适配层改造。</strong> 该 benchmark 在 harness、Agent CLI、transcript schema、容器镜像、配置文件、grading 几个关键环节都强耦合 OpenClaw（Anthropic Claude Code 的开源克隆），切换到 OpenHands 需要重写 ~30-40% 的代码（约 1000-1500 行 Python），其中 transcript 字段映射和 docker 镜像替换是工作量大头。
+</div>
+
+<h2 id="overview">2. 仓库概览</h2>
+
+<table>
+<tr><th>属性</th><th>值</th></tr>
+<tr><td>名称</td><td>QwenClawBench v1.1-100</td></tr>
+<tr><td>发布方</td><td>Qwen Team & Alibaba Data (SKYLENAGE-AI)</td></tr>
+<tr><td>定位</td><td>对 OpenClaw 类 agent 进行真实用户分布的能力评测</td></tr>
+<tr><td>规模</td><td>100 个任务、8 大类、~3500 行核心 Python 代码</td></tr>
+<tr><td>类别分布</td><td>Workflow & Orchestration (21), System Ops (20), Knowledge & Memory (15), Finance & Quant (10), Data Analysis (10), Security (9), Communication (8), Research (7)</td></tr>
+<tr><td>初始来源</td><td>Qwen3.6-Plus 内部开发期 benchmark，后开源</td></tr>
+<tr><td>致谢</td><td>"Built on top of PinchBench framework"——脚本里仍残留 <code>/tmp/pinchbench/...</code> 的回退路径</td></tr>
+<tr><td>License</td><td>MIT</td></tr>
+</table>
+
+<h2 id="stack">3. 底层技术栈</h2>
+
+<h3>3.1 Agent harness：OpenClaw（不是 LangGraph、不是 OpenAI SDK）</h3>
+
+<p>这是整个 benchmark 最核心的耦合点。<strong>QwenClawBench 不实现自己的 agent runtime</strong>，所有 agent 行为都委托给 <code>openclaw</code> CLI（来自 <code>github.com/openclaw/openclaw</code>）执行。OpenClaw 是 Anthropic 自家 Claude Code 的开源克隆，模型选项写法（<code>dashscope/qwen3.6-plus</code>、<code>anthropic/claude-opus-4-6</code>）也沿用 Claude Code 体系。</p>
+
+<p>核心证据：</p>
+<ul>
+<li><code>scripts/lib_agent.py</code> 全文 762 行，全部是 <code>subprocess.run(["openclaw", ...])</code> 的封装</li>
+<li>调用模板：<code>openclaw agent --agent &lt;id&gt; --session-id &lt;sid&gt; --message &lt;prompt&gt;</code></li>
+<li>Agent 创建：<code>openclaw agents add &lt;id&gt; --model &lt;m&gt; --workspace &lt;path&gt; --non-interactive</code></li>
+<li>thinking level 直接对齐 OpenClaw 的实现：<code>off / minimal / low / medium / high / xhigh / adaptive</code>，并且 <code>xhigh</code> 仅 GPT-5.x 系列、<code>adaptive</code> 仅 Anthropic Claude 4.6 才支持</li>
+<li>Transcript 路径硬编码到 <code>~/.openclaw/agents/&lt;agent_id&gt;/sessions/*.jsonl</code></li>
+</ul>
+
+<h3>3.2 隔离层：Docker</h3>
+
+<p><code>scripts/lib_docker.py</code>（594 行）实现 <code>DockerContainer</code> 类，每个任务跑在独立容器：</p>
+<ul>
+<li>默认镜像：<code>ghcr.io/openclaw/openclaw:main</code>（OpenClaw 官方镜像，已预装 <code>openclaw</code> CLI）</li>
+<li>容器内的 <code>~/.openclaw</code> 目录从宿主机 <code>openclaw_config/</code> 拷贝（独立副本，避免并发污染）</li>
+<li>API key 通过 <code>docker run --env-file</code> 注入</li>
+<li>容器内 workspace 固定 <code>/home/node/workspace</code>，所有任务文件 docker cp 进去</li>
+</ul>
+
+<h3>3.3 并发与编排</h3>
+
+<table>
+<tr><th>模块</th><th>实现</th></tr>
+<tr><td>并发</td><td>Python <code>concurrent.futures.ThreadPoolExecutor</code>，每任务一个线程，每线程一个容器</td></tr>
+<tr><td>进度</td><td><code>tqdm</code> + <code>logging_redirect_tqdm</code></td></tr>
+<tr><td>重试 / 续跑</td><td>自实现的 resume 逻辑：扫描已有 <code>results/</code> 目录跳过已完成任务；<code>--rerun-anomalous</code> 重跑异常任务</td></tr>
+<tr><td>异常检测</td><td>独立模块 <code>lib_anomalies.py</code>（370 行），把 API 错误 / 容器崩溃 / 超时显式标记，不计入分数</td></tr>
+</table>
+
+<h3>3.4 依赖（极轻）</h3>
+
+<pre><code>pyyaml &gt;= 6.0.1
+tqdm &gt;= 4.0
+# 加 Python &gt;= 3.10、docker engine、openclaw CLI</code></pre>
+
+<p><strong>注意</strong>：仓库本身 Python 依赖只有 2 个，但运行时强依赖 OpenClaw 容器镜像（<code>ghcr.io/openclaw/openclaw:main</code>），整套 agent runtime 都在镜像里。</p>
+
+<h3>3.5 评分</h3>
+
+<ul>
+<li><code>automated</code>：从任务 markdown 抽 <code>def grade(transcript, workspace_path) -> dict</code> 函数，<code>exec()</code> 执行</li>
+<li><code>llm_judge</code>：默认 <code>claude-opus-4-5-20251101</code>，走 OpenAI 兼容 <code>/chat/completions</code>，自带 100 次重试 + 指数退避</li>
+<li><code>hybrid</code>：默认带惩罚——auto_score &lt; 0.75 时把 LLM 部分置零（防止 LLM-as-judge 幻觉给虚高分）</li>
+<li>统计指标：mean、strict_accuracy（满分率）、pass@k、pass^k</li>
+</ul>
+
+<h2 id="arch">4. 系统架构</h2>
+
+<div class="arch-diagram">┌─────────────────────────────────────────────────────────────┐
+│  benchmark.py  (master/orchestrator, ThreadPoolExecutor)     │
+│  ─ task discovery (lib_tasks.TaskLoader)                    │
+│  ─ concurrency control                                       │
+│  ─ resume / anomaly handling (lib_anomalies)                │
+│  ─ aggregate stats (pass@k, pass^k, mean, accuracy)         │
+└─────────────────┬───────────────────────────────────────────┘
+                  │ for each task × run_id
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│  lib_docker.execute_task_in_docker()                         │
+│  1. start container (ghcr.io/openclaw/openclaw:main)         │
+│  2. copy workspace assets in (docker cp)                     │
+│  3. openclaw agents add &lt;id&gt; --model &lt;m&gt;             │
+│  4. openclaw agent --agent &lt;id&gt; --message &lt;prompt&gt;   │
+│  5. collect transcript (~/.openclaw/.../sessions/*.jsonl)    │
+│  6. snapshot workspace back to host                          │
+│  7. tear down container                                      │
+└─────────────────┬───────────────────────────────────────────┘
+                  │ execution_result + transcript + workspace
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│  lib_grading.grade_task()                                    │
+│   ─ automated: exec(grade_func)(transcript, workspace)       │
+│   ─ llm_judge: claude-opus-4-5 via OpenAI-compatible API     │
+│   ─ hybrid: auto + llm with penalty (auto&lt;0.75 → llm=0)      │
+└─────────────────────────────────────────────────────────────┘</div>
+
+<h2 id="core">5. 核心实现剖析</h2>
+
+<h3>5.1 lib_agent.py — Agent 调用层</h3>
+
+<p>把 OpenClaw CLI 包装成 Python 函数，关键函数：</p>
+<ul>
+<li><code>execute_openclaw_task()</code>：执行单个任务，wraps <code>openclaw agent</code></li>
+<li><code>ensure_agent_exists()</code>：调 <code>openclaw agents add</code></li>
+<li><code>_load_transcript()</code>：读 <code>~/.openclaw/agents/&lt;id&gt;/sessions/&lt;uuid&gt;.jsonl</code>。<strong>注意</strong>注释里明确说 OpenClaw 会忽略外部传入的 <code>--session-id</code>，自己生成 UUID，所以这里有一段相当 hacky 的探测逻辑（先查 <code>sessions.json</code>、再 glob 最新文件、最后兜底）</li>
+<li><code>_extract_usage_from_transcript()</code>：从 transcript 抽 token 用量和 cost。字段路径：<code>entry.message.usage.{input, output, cacheRead, cacheWrite, totalTokens, cost.total}</code> ← <strong>这是 OpenClaw 的 transcript schema</strong></li>
+</ul>
+
+<h3>5.2 lib_docker.py — 容器层</h3>
+
+<p>每个任务一个独立容器，每容器一个独立 <code>~/.openclaw</code> 副本（避免并发污染）：</p>
+
+<pre><code># /tmp/qwenclawbench/docker_homes/&lt;container_name&gt;
+#   └── (.openclaw config 拷贝)
+# 容器挂载点: /home/node/.openclaw
+
+docker run -d \
+  --name &lt;container&gt; \
+  --label qwenclawbench=1 \
+  -v /tmp/qwenclawbench/docker_homes/...:/home/node/.openclaw \
+  --env-file openclaw_config/.env \
+  ghcr.io/openclaw/openclaw:main \
+  sleep infinity</code></pre>
+
+<p>workspace 固定在 <code>/home/node/workspace</code>，所有 task asset 通过 <code>docker cp</code> 进入。</p>
+
+<h3>5.3 lib_grading.py — 评分层</h3>
+
+<p>三种打分模式：</p>
+
+<table>
+<tr><th>模式</th><th>实现</th><th>关键代码</th></tr>
+<tr><td>automated</td><td>从 task md 的 <code>## Automated Checks</code> 抽出 Python 代码块，<code>exec</code> 后调 <code>grade(transcript, workspace_path)</code></td><td>scores 字典取均值得到 [0, 1] 分</td></tr>
+<tr><td>llm_judge</td><td>调 <code>POST {JUDGE_BASE_URL}/chat/completions</code>，prompt 注入 task / expected_behavior / transcript_summary / rubric，要求纯 JSON 输出</td><td>带 100 次重试，失败回退到 <code>openclaw agent</code></td></tr>
+<tr><td>hybrid</td><td>auto + llm 分别打，按 <code>grading_weights</code> 加权</td><td>默认惩罚：<code>auto&lt;0.75 → llm=0</code>；<code>--simple-scoring</code> 关闭惩罚</td></tr>
+</table>
+
+<p>判分函数签名：<code>def grade(transcript: list, workspace_path: str) -> dict</code>。<strong>这里的 <code>transcript</code> 是 OpenClaw 的 jsonl 数组</strong>，schema 见下节。</p>
+
+<h3>5.4 OpenClaw transcript schema（核心耦合点）</h3>
+
+<p>评分代码遍历 transcript 时使用以下字段：</p>
+
+<pre><code># 来自 lib_grading._summarize_transcript() 与 _extract_usage_from_transcript()
+{
+  "type": "message",
+  "message": {
+    "role": "assistant" | "user" | "toolResult",
+    "content": [
+      {"type": "toolCall", "name": "...", "arguments": {...}},
+      {"type": "text",     "text":   "..."}
+    ],
+    "usage": {
+      "input": int, "output": int,
+      "cacheRead": int, "cacheWrite": int,
+      "totalTokens": int,
+      "cost": {"total": float}
+    }
+  }
+}</code></pre>
+
+<p>所有 100 个任务的 <code>grade()</code> 函数都基于这个 schema 在判定 tool 调用次数、参数、输出。<strong>切换到任何其他 framework，都需要把 transcript 翻译成这套 schema，否则评分代码全失效。</strong></p>
+
+<h2 id="task-format">6. 任务定义格式</h2>
+
+<p>每个任务一份 markdown：YAML frontmatter + 5 段固定 section。</p>
+
+<pre><code>---
+id: task_00036_find_largest_file_in_downloads_directory
+name: Find Largest File in Downloads Directory
+category: System Operations and Administration
+grading_type: automated      # automated | llm_judge | hybrid
+timeout_seconds: 1800
+input_modality: text-only
+external_dependency: none
+workspace_files:
+  - role: data
+    source: downloads/annual_sales_report_2024.csv
+    dest:   downloads/annual_sales_report_2024.csv
+  ...
+---
+## Prompt
+... 用户给 agent 的指令 ...
+
+## Expected Behavior
+... 预期行为，也作为 LLM judge 的参考 ...
+
+## Grading Criteria
+- [ ] criterion 1
+- [ ] criterion 2
+
+## Automated Checks
+```python
+def grade(transcript: list, workspace_path: str) -> dict:
+    scores = {"check_1": 0.0, ...}
+    # 检查 workspace 文件、transcript 中的工具调用
+    return scores
+```
+
+## LLM Judge Rubric
+... 给 LLM judge 的评分维度说明 ...</code></pre>
+
+<p>每个任务对应 <code>data/&lt;dataset&gt;/assets/&lt;task_id&gt;/</code> 目录的初始 workspace 文件。</p>
+
+<h2 id="grading">7. 评分机制亮点</h2>
+
+<h3>7.1 hybrid 惩罚分 ⭐</h3>
+<p>这套设计很有借鉴价值：</p>
+<pre><code>score = w_auto · s_auto + w_llm · s_llm · 𝟙[s_auto ≥ 0.75]</code></pre>
+<p>核心思路：<strong>当 agent 没把 deliverable 做对（automated 检查不过）时，LLM judge 不论给多高分都置零</strong>，避免 LLM judge 被"输出流畅但答错"的 agent 骗过。这是 LLM-as-judge 路线的常见坑（我们 inventory_patrol v3 也踩过类似的合成 GT 翻车），值得在自建评测中复用。</p>
+
+<h3>7.2 pass@k / pass^k</h3>
+<ul>
+<li><code>pass@k</code>：k 次采样中至少 1 次满分的概率</li>
+<li><code>pass^k</code>：k 次采样全部满分的概率（更严格）</li>
+</ul>
+<p>使用 <code>math.comb</code> 实现 unbiased 估计（参考 HumanEval 那套），相当严谨。</p>
+
+<h3>7.3 可恢复执行</h3>
+<p>支持 <code>--resume</code>、<code>--rerun-anomalous</code>、<code>--no-resume</code> 三种模式，<code>lib_anomalies.py</code> 显式区分 API 错误、容器崩溃、超时——这些都不会被静默折算成分数。这套机制很扎实，也是任何 agent benchmark 必备的工程基础。</p>
+
+<h2 id="openhands-compat">8. OpenHands 兼容性评估</h2>
+
+<h3>8.1 OpenClaw vs OpenHands 关键差异</h3>
+
+<table>
+<tr><th>维度</th><th>OpenClaw（QwenClawBench 当前用）</th><th>OpenHands</th><th>兼容性</th></tr>
+<tr><td>定位</td><td>Anthropic Claude Code 开源克隆</td><td>通用 agent harness（前身 OpenDevin）</td><td><span class="badge badge-red">不一致</span></td></tr>
+<tr><td>调用方式</td><td>CLI: <code>openclaw agent --message ...</code></td><td>Python SDK / Docker server / REST API</td><td><span class="badge badge-red">完全不同</span></td></tr>
+<tr><td>容器镜像</td><td><code>ghcr.io/openclaw/openclaw:main</code></td><td><code>docker.all-hands.dev/all-hands-ai/runtime</code> + sandbox 镜像</td><td><span class="badge badge-red">不兼容</span></td></tr>
+<tr><td>Transcript schema</td><td><code>{type:"message", message:{role, content:[{type:"toolCall"...}], usage:{input,output,cacheRead,...}}}</code></td><td>OpenHands Event Stream（<code>Action</code>/<code>Observation</code> 对，含 <code>CmdRunAction</code>, <code>FileEditAction</code>, <code>BrowseURLAction</code> 等类型）</td><td><span class="badge badge-red">字段命名/结构都不同</span></td></tr>
+<tr><td>Agent 配置</td><td><code>~/.openclaw/openclaw.json</code></td><td><code>config.toml</code> + <code>AgentConfig</code></td><td><span class="badge badge-red">不通用</span></td></tr>
+<tr><td>Workspace</td><td>容器内 <code>/home/node/workspace</code></td><td>容器内 <code>/workspace</code></td><td><span class="badge badge-yellow">路径不同，可改</span></td></tr>
+<tr><td>API 凭证</td><td><code>--env-file</code> 注入</td><td><code>config.toml</code> 或环境变量</td><td><span class="badge badge-yellow">可改</span></td></tr>
+<tr><td>thinking level</td><td>七档：<code>off/minimal/low/medium/high/xhigh/adaptive</code></td><td>无对应概念（用 system prompt 或 model 参数控制）</td><td><span class="badge badge-red">无映射</span></td></tr>
+<tr><td>Tool 体系</td><td>OpenClaw 内置 + <code>nativeSkills</code></td><td>OpenHands ActionType 体系（编辑、shell、browser、IPython）</td><td><span class="badge badge-red">不同抽象</span></td></tr>
+<tr><td>并发模型</td><td>容器级，每任务一容器</td><td>EventStream 也支持容器级（<code>DockerRuntime</code>），可对齐</td><td><span class="badge badge-green">可对齐</span></td></tr>
+<tr><td>Token 用量字段</td><td><code>usage.{input,output,cacheRead,cacheWrite,cost.total}</code></td><td><code>llm_metrics.{accumulated_cost, costs[]}</code></td><td><span class="badge badge-yellow">可映射</span></td></tr>
+</table>
+
+<h3>8.2 不兼容点逐一梳理</h3>
+
+<h4>① 不能直接换镜像</h4>
+<p><code>lib_docker.py</code> 默认镜像 <code>ghcr.io/openclaw/openclaw:main</code> 里预装了 <code>openclaw</code> CLI；OpenHands 镜像里没有这个 binary，<code>execute_task_in_docker()</code> 里的 <code>container.exec(["openclaw", ...])</code> 会全部失败。</p>
+
+<h4>② Transcript schema 不一致 → 100 个 grade() 函数全部失效</h4>
+<p>每个任务的 <code>def grade(transcript, workspace_path)</code> 函数都按 OpenClaw schema 遍历。OpenHands 的 EventStream 是 <code>Action / Observation</code> 对（如 <code>CmdRunAction</code> + <code>CmdOutputObservation</code>），字段名、嵌套结构完全不同。需要写一个 <strong>OpenHands → OpenClaw transcript adapter</strong>，把：</p>
+<pre><code>OpenHands EventStream → 翻译成 →
+[
+  {"type":"message", "message":{
+      "role":"assistant",
+      "content":[{"type":"toolCall","name":"bash","arguments":{"command":"ls"}}]
+  }},
+  {"type":"message", "message":{
+      "role":"toolResult",
+      "content":["file1\nfile2"]
+  }},
+  ...
+]</code></pre>
+<p>否则现有 100 个 grade 函数完全失效。</p>
+
+<h4>③ Agent 创建 / 调用 API 不同</h4>
+<p>OpenClaw：CLI 子命令 <code>openclaw agents add / agent --message</code>。<br>
+OpenHands：Python <code>AgentController</code> + <code>EventStream</code>，或者 REST API <code>POST /api/conversations</code>。<br>
+<code>lib_agent.py</code> 里 762 行 subprocess 包装代码全部需要重写为 OpenHands SDK 调用。</p>
+
+<h4>④ thinking level 无映射</h4>
+<p>OpenClaw 七档 thinking level 在 OpenHands 里没有对应概念。如果要保留这个功能，需要按模型 provider 各自配置 reasoning effort（如 GPT-5.x 系的 <code>reasoning_effort</code>、Claude 4.6 的 <code>extended_thinking</code>），由 LLM 配置层接管。</p>
+
+<h4>⑤ Token usage / cost 字段映射</h4>
+<p>OpenClaw 字段在 message 内嵌 <code>usage</code>；OpenHands 在 <code>State.metrics</code> 累计。需要在 adapter 里聚合并 reshape。</p>
+
+<h4>⑥ Judge 路径需要保留独立</h4>
+<p>当前 judge 走 OpenAI 兼容 API（已经独立于 OpenClaw），<strong>这部分不需要改</strong>，是少数几个不需要动的模块。</p>
+
+<h3>8.3 兼容点（可复用）</h3>
+
+<div class="verdict verdict-good">
+<strong>下面这些组件可以原样保留：</strong>
+<ul>
+<li>任务格式（YAML frontmatter + 5 段 markdown）—— 与 framework 无关，是纯 spec</li>
+<li>100 个任务的 prompt / expected_behavior / rubric —— framework 无关</li>
+<li>workspace assets —— framework 无关</li>
+<li>LLM judge 引擎（直连 OpenAI 兼容 API）—— framework 无关</li>
+<li>hybrid 惩罚分公式、pass@k / pass^k 统计 —— framework 无关</li>
+<li>异常检测、resume、并发框架 —— 主体逻辑可复用，仅需替换底层调用</li>
+<li>Docker 容器编排（DockerContainer 类）—— 抽象层基本可复用，只需换镜像和 cmd</li>
+</ul>
+</div>
+
+<h2 id="migration">9. 迁移到 OpenHands 的工作量评估</h2>
+
+<h3>9.1 改造路线图</h3>
+
+<table>
+<tr><th>模块</th><th>改造内容</th><th>工作量</th><th>风险</th></tr>
+<tr><td><code>lib_agent.py</code></td><td>整体重写为 OpenHands SDK 调用，删除 thinking level 相关代码或映射到对应 provider 参数</td><td>大（~600 行重写）</td><td>中（OpenHands SDK 演进快）</td></tr>
+<tr><td><code>lib_docker.py</code></td><td>换镜像为 <code>docker.all-hands.dev/all-hands-ai/runtime</code>；workspace 路径改 <code>/workspace</code>；config 从 <code>openclaw.json</code> 换为 <code>config.toml</code></td><td>中（~300 行改动）</td><td>低</td></tr>
+<tr><td><code>lib_grading.py</code> 中 <code>_summarize_transcript</code> + <code>_extract_usage_from_transcript</code></td><td>新增 <strong>OpenHands EventStream → OpenClaw schema</strong> 适配函数，让 100 个 grade() 函数能继续用</td><td>中（~200 行新增 adapter）</td><td>高（schema 映射必须完整覆盖所有 ToolCall 类型）</td></tr>
+<tr><td>100 个 task md 中的 <code>def grade()</code></td><td>不修改 task md，只修改 adapter，让旧函数仍能跑</td><td>0（关键设计选择）</td><td>—</td></tr>
+<tr><td>config 文件</td><td>新增 <code>openhands_config/config.toml</code> 和 LLM provider 配置</td><td>小（~50 行）</td><td>低</td></tr>
+<tr><td>benchmark.py</td><td>参数解析新增 <code>--harness openhands|openclaw</code>，路由到对应 lib</td><td>小（~50 行）</td><td>低</td></tr>
+</table>
+
+<p><strong>总工作量估算</strong>：约 <strong>1000-1500 行 Python</strong>，1-2 周专人工作（取决于对 OpenHands SDK 的熟悉度）。</p>
+
+<h3>9.2 推荐架构（多 harness 通用化）</h3>
+
+<p>与其单点替换 OpenClaw → OpenHands，不如借这次重构做成 <strong>多 harness 通用 benchmark</strong>。这与你 <code>selfDeepAgents</code> 项目里已经在做的 <code>SkillAdapter</code> Protocol 思路天然契合：</p>
+
+<div class="arch-diagram">┌─────────────────────────────────────────────────────────────┐
+│        QwenClawBench 通用化后架构                             │
+│                                                              │
+│   ┌──────────────────────────────────────────────────────┐  │
+│   │  HarnessAdapter (Protocol)                           │  │
+│   │  ─ create_agent(model, workspace) -> agent_id        │  │
+│   │  ─ run_task(prompt, timeout) -> raw_transcript       │  │
+│   │  ─ to_canonical_transcript() -> CanonicalSchema      │  │
+│   │  ─ extract_usage() -> {input, output, cost, ...}     │  │
+│   └──────────────────────────────────────────────────────┘  │
+│            ▲                  ▲                ▲              │
+│   ┌────────┴───────┐ ┌────────┴────────┐ ┌─────┴────────┐  │
+│   │ OpenClawAdapter│ │ OpenHandsAdapter│ │  AiderAdapter│  │
+│   └────────────────┘ └─────────────────┘ └──────────────┘  │
+│                                                              │
+│   100 个 grade() 函数仍按 CanonicalSchema 写，零改动        │
+└─────────────────────────────────────────────────────────────┘</div>
+
+<p>关键：<strong>引入一个"canonical transcript schema"</strong>（建议直接采用 OpenClaw 当前的 schema，因为 100 个 grade 函数已经按它写了），各 harness 实现 <code>to_canonical_transcript()</code>，存量代码全部复用。</p>
+
+<h2 id="recommend">10. 建议与结论</h2>
+
+<h3>10.1 关于直接兼容</h3>
+<div class="verdict verdict-bad">
+<strong>不能</strong>直接拿 QwenClawBench + 替换镜像就跑 OpenHands。至少要重写 lib_agent + lib_docker，新增 transcript adapter。
+</div>
+
+<h3>10.2 关于该不该迁移</h3>
+<ul>
+<li><strong>如果只是想评测自家 finetune 的 Qwen 类模型在 OpenHands harness 下的 agent 能力</strong>：建议做 OpenHandsAdapter，沿用 100 个 task spec + grade 函数，工作量约 1-2 周。</li>
+<li><strong>如果只是想用这套 task 集做能力回归</strong>：可以只取 task 的 prompt + expected_behavior，自己用任意 harness 跑，再用 LLM judge 评分（绕开 grade 函数对 transcript schema 的强耦合）。</li>
+<li><strong>如果想做 harness 间对比（OpenClaw vs OpenHands vs Aider）</strong>：必须做 canonical transcript adapter 路线，工作量较大但价值最高。</li>
+</ul>
+
+<h3>10.3 借鉴价值（无论是否迁移都建议吸收）</h3>
+<ol>
+<li><strong>hybrid 惩罚分公式</strong>：<code>auto&lt;0.75 → llm=0</code>，防止 LLM judge 幻觉。这套设计与 inventory_patrol 项目里"合成 GT 翻车"的教训正面契合，建议复用。</li>
+<li><strong>pass@k / pass^k 双指标</strong>：unbiased 估计法值得直接抄过来。</li>
+<li><strong>异常显式标记</strong>：API 错误、容器崩溃、超时不计入分数，是任何严肃 benchmark 必须做的。</li>
+<li><strong>每任务独立 docker 容器 + 独立 ~/.openclaw 副本</strong>：彻底隔离并发污染。</li>
+<li><strong>resume + rerun-anomalous</strong>：长跑必备工程能力。</li>
+<li><strong>task 定义用 markdown + YAML frontmatter</strong>：grade 函数嵌入 markdown，比纯 YAML 灵活，又比纯代码可读。</li>
+</ol>
+
+<h3>10.4 关于评测对象边界</h3>
+<blockquote>
+<strong>提醒</strong>：QwenClawBench 评的是 <em>"模型 + OpenClaw harness + 业务 skill"</em> 的整体系统效果，不是纯 base model 能力。如果换到 OpenHands harness 下跑同样的 task，分数可能差别很大——并不是模型变弱了，而是 harness 不同。这与你项目里 <code>inventory_patrol</code> v0~v3 评测对象的注意点完全一致：必须明确"评的是什么"。
+</blockquote>
+
+<hr>
+
+<p class="footnote">本报告基于 commit-time 仓库快照分析。报告生成时使用 git clone 后的源码（QwenClawBench v1.1-100），核心证据点都给出了文件名和行号，可在原仓库复核。报告作者：Claude Code（selfDeepAgents 项目分析协助）。</p>
+
+</body>
+</html>
