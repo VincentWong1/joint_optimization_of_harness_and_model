@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>NL2SQL Agent 架构对比 (2026) — 是否替换 nlp2dsl → dsl2sql 管线 (ODPS/MaxCompute)</title>
+<title>NL2SQL Agent 架构对比 (2026) — 是否替换 nl2dsl → dsl2sql 管线 (ODPS/MaxCompute)</title>
 <style>
   :root{
     --bg:#0e1116; --panel:#161a22; --panel2:#1d2330; --ink:#e6edf3; --mute:#9aa6b2;
@@ -70,7 +70,7 @@
 
 <header>
   <h1>NL2SQL Agent 架构对比 (2026)</h1>
-  <p class="meta">是否用更新方案替代当前的 <code>nlp2dsl → dsl2sql</code> 两阶段管线？面向 ODPS / MaxCompute 的可行性结论 · 2026-05-20</p>
+  <p class="meta">是否用更新方案替代当前的 <code>nl2dsl → dsl2sql</code> 两阶段管线？面向 ODPS / MaxCompute 的可行性结论 · 2026-05-20</p>
   <div>
     <span class="pill accent">数据库：ODPS / MaxCompute</span>
     <span class="pill">基线：两阶段 + Schema Linking</span>
@@ -91,10 +91,10 @@
   </ul>
 </section>
 
-<h2>1. 当前基线：<code>nlp2dsl → dsl2sql</code></h2>
+<h2>1. 当前基线：<code>nl2dsl → dsl2sql</code></h2>
 <p class="meta">用户自述：<i>Stage 1: NL + schema → 结构化 DSL（intent / entities / filters）；Stage 2: DSL + 方言规则 → ODPS SQL。痛点：DSL 文法维护、schema linking 准确率。</i></p>
 
-<div class="ascii">NL  ──►  [LLM: nlp2dsl]  ──►  DSL (JSON)  ──►  [Rule: dsl2sql]  ──►  ODPS SQL
+<div class="ascii">NL  ──►  [LLM: nl2dsl]  ──►  DSL (JSON)  ──►  [Rule: dsl2sql]  ──►  ODPS SQL
                 ▲                                    ▲
         schema embeddings                      dialect rules
                                                  (Hive/MaxCompute)
@@ -288,7 +288,7 @@
   <thead>
     <tr>
       <th>维度</th>
-      <th>当前 nlp2dsl→dsl2sql</th>
+      <th>当前 nl2dsl→dsl2sql</th>
       <th>A. 单次直生+SL</th>
       <th>B. Multi-Generator (XiYan)</th>
       <th>C. Agentic Loop</th>
@@ -381,13 +381,13 @@
   <h3>4 阶段迁移路径</h3>
   <ol>
     <li><b>阶段 1 (1–2 周)：Validator 抢救层。</b> 把现有 dsl2sql 规则全部抽到独立 SQL Validator（parse → dry-run → 分区检查 → ACL → 黑名单）。这是后面所有架构的公共下游。<b>已有规则的 ROI 在这里继续兑现</b>。</li>
-    <li><b>阶段 2 (2–3 周)：M-Schema + 直生 SQL。</b> 直接 fork <code>XGenerationLab/M-Schema</code>，加 RAG 检索（DDL + 业务术语 + 历史正确 SQL）。LLM 直生 ODPS SQL → Validator。<b>保留旧 nlp2dsl 路径作为 fallback</b>，AB 评估。</li>
+    <li><b>阶段 2 (2–3 周)：M-Schema + 直生 SQL。</b> 直接 fork <code>XGenerationLab/M-Schema</code>，加 RAG 检索（DDL + 业务术语 + 历史正确 SQL）。LLM 直生 ODPS SQL → Validator。<b>保留旧 nl2dsl 路径作为 fallback</b>，AB 评估。</li>
     <li><b>阶段 3 (3–4 周)：模板缓存 + Refiner。</b> 高频问题做参数化模板缓存（70% 流量提速到 ~50 ms）。Validator 失败时进入 Refiner（≤ 2 轮，错误信息回喂同一 LLM）。</li>
     <li><b>阶段 4 (按需)：Hard-Mode + 内部 MCP 工作台。</b> 困难请求或长期失败请求 → fork XiYan-SQL multi-generator pipeline 兜底；<b>同步</b>给数据分析师配 ODPS-MCP 探索工作台（用 Claude Code / Cursor 直接连库），不进生产路径。</li>
   </ol>
   <h3>明确反对的做法</h3>
   <ul>
-    <li><span class="bad">不要</span>直接把 nlp2dsl→dsl2sql 整个换成无界 Agent — 稳定性回退、产出不可复现。</li>
+    <li><span class="bad">不要</span>直接把 nl2dsl→dsl2sql 整个换成无界 Agent — 稳定性回退、产出不可复现。</li>
     <li><span class="bad">不要</span>把 ODPS 直接通过 MCP 暴露给 LLM 作为生产入口 — 缺审计与限流。</li>
     <li><span class="bad">不要</span>仅靠 RAG（Vanna 风格）就上线 — 复杂查询天花板低。</li>
     <li><span class="bad">不要</span>从零做 NL2SQL 专用模型 fine-tune — 工程成本远高于「prompt + RAG + 复用 XiYan」。除非你能维持 BIRD/Spider eval pipeline，且团队有 RL infra。</li>
@@ -408,7 +408,7 @@
   <ol>
     <li>「模型基座能力进化」与「Agent harness 改良」<b>都已发生</b>，但意味着的不是「上更复杂的 Agent」，而是「不再需要 DSL 这个补丁」 — Qwen3-Max / Claude 4.7 / GPT-4.5 等 2026 主流模型已能直生 ODPS 方言，DSL 已成累赘。</li>
     <li>2026 H1 的 ReViSQL 结果是路线判断分水岭：<b>BIRD 已被攻克到人类水平，且关键变量是数据质量而非架构复杂度</b>。继续把 Agent 做复杂没有 ROI。</li>
-    <li>对你（ODPS 用户）<b>最可行</b>的方案是 <b>F. 混合架构</b>：Schema Linking + 直生 SQL + Validator + 有界 Refiner，<b>把 dsl2sql 规则降级为 Validator lint</b>，<b>把 nlp2dsl 整个移除</b>。落地路径已成熟（XiYan-SQL / M-Schema / spring-ai-alibaba-nl2sql 都是开源资产）。</li>
+    <li>对你（ODPS 用户）<b>最可行</b>的方案是 <b>F. 混合架构</b>：Schema Linking + 直生 SQL + Validator + 有界 Refiner，<b>把 dsl2sql 规则降级为 Validator lint</b>，<b>把 nl2dsl 整个移除</b>。落地路径已成熟（XiYan-SQL / M-Schema / spring-ai-alibaba-nl2sql 都是开源资产）。</li>
     <li>不必做 fine-tune，不必做 MCP-first 改造，不必上无界 Agent 循环。这三个都<b>不是当下的最佳折中</b>。</li>
   </ol>
 </div>
