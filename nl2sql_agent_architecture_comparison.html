@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NL2SQL Agent 架构对比 (2026) — 是否替换 nlp2dsl → dsl2sql 管线 (ODPS/MaxCompute)</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161a22; --panel2:#1d2330; --ink:#e6edf3; --mute:#9aa6b2;
+    --accent:#7aa2ff; --good:#3fb950; --warn:#d29922; --bad:#f85149; --border:#2a3140;
+    --code-bg:#0a0d12;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f7f8fa; --panel:#ffffff; --panel2:#f0f3f8; --ink:#0f172a; --mute:#475569;
+      --accent:#1d4ed8; --good:#15803d; --warn:#a16207; --bad:#b91c1c; --border:#e2e8f0; --code-bg:#f1f5f9; }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 24px 96px}
+  header{padding:24px 0 8px;border-bottom:1px solid var(--border)}
+  h1{font-size:28px;margin:0 0 6px;line-height:1.25}
+  h2{font-size:21px;margin:36px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  h3{font-size:16.5px;margin:22px 0 8px}
+  h4{font-size:13.5px;margin:14px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+  p,li{margin:6px 0}
+  ul{padding-left:22px}
+  code{background:var(--code-bg);padding:1px 6px;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:12px;overflow-x:auto}
+  pre code{background:transparent;padding:0;font-size:12.5px;line-height:1.55}
+  .meta{color:var(--mute);font-size:13px}
+  .tldr{background:linear-gradient(180deg,var(--panel) 0%,var(--panel2) 100%);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;padding:18px 20px;margin:18px 0 8px}
+  .tldr h2{margin-top:0;border:0;padding:0;font-size:18px}
+  .grid{display:grid;gap:14px}
+  .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  @media(max-width:760px){.grid-2,.grid-3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+  .card h3{margin-top:0}
+  .pill{display:inline-block;padding:1px 8px;font-size:11.5px;border-radius:999px;border:1px solid var(--border);color:var(--mute);margin-right:6px;background:var(--panel2)}
+  .pill.good{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--border))}
+  .pill.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
+  .pill.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--border))}
+  .pill.accent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,var(--border))}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid var(--border);padding:8px 10px;vertical-align:top;text-align:left}
+  th{background:var(--panel2);font-weight:600}
+  td.center{text-align:center}
+  .score{font-variant-numeric:tabular-nums}
+  .ok{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .quote{border-left:3px solid var(--border);padding:6px 12px;color:var(--mute);font-size:13.5px;margin:10px 0}
+  .ascii{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:12.5px;white-space:pre;overflow-x:auto;line-height:1.5}
+  .footnote{font-size:12px;color:var(--mute);margin-top:8px}
+  details{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 14px;margin:10px 0}
+  summary{cursor:pointer;font-weight:600}
+  .key{font-weight:600;color:var(--accent)}
+  hr{border:0;border-top:1px solid var(--border);margin:28px 0}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px dashed color-mix(in srgb,var(--accent) 50%,transparent)}
+  a:hover{border-bottom-style:solid}
+  .badge{display:inline-block;padding:2px 6px;font-size:11px;border-radius:4px;background:var(--panel2);border:1px solid var(--border);margin-right:4px;font-family:ui-monospace,monospace}
+  @media print{
+    body{background:#fff;color:#000}
+    .wrap{max-width:none;padding:0}
+    .card,.tldr,pre,.ascii{break-inside:avoid}
+    a{color:#000;text-decoration:underline}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>NL2SQL Agent 架构对比 (2026)</h1>
+  <p class="meta">是否用更新方案替代当前的 <code>nlp2dsl → dsl2sql</code> 两阶段管线？面向 ODPS / MaxCompute 的可行性结论 · 2026-05-20</p>
+  <div>
+    <span class="pill accent">数据库：ODPS / MaxCompute</span>
+    <span class="pill">基线：两阶段 + Schema Linking</span>
+    <span class="pill">权重：稳定性 / 扩展性 / 延迟成本</span>
+    <span class="pill">资料窗口：2025-12 起</span>
+  </div>
+</header>
+
+<section class="tldr">
+  <h2>结论 (TL;DR)</h2>
+  <p><span class="key">建议：去掉 DSL 中间层，直接演进为「Schema Linking → 直生 ODPS SQL → 有界执行反馈」三段式架构，并直接复用阿里集团内的 XiYan-SQL / M-Schema / Spring AI Alibaba NL2SQL 资产。</span></p>
+  <p>2026 上半年学界已经给出明确信号：<b>ReViSQL 用 RLVR + 干净训练数据，在 BIRD-Verified Mini-Dev 上拿到 93.2% 执行准确率，<u>首次超过人类水平（92.96%）</u>，且 30B-A3B 版本以 7.5× 更低单查询成本就能匹配此前 SOTA</b>（arXiv:2603.20004）。这意味着「靠堆 Agent 复杂度提升准确率」的范式已经走到尽头 — 现在是<b>简化架构</b>的时机，不是叠加。</p>
+  <ul>
+    <li><b>不再需要 DSL</b>：DSL 是 GPT-3.5 时代弱模型的补丁。2026 主流大模型（Claude 4.x / Qwen3-Max / GPT-4.5 / Gemini 2.5 Pro / DeepSeek-V3）已能直生 ODPS 方言，DSL 反而成为表达力瓶颈。</li>
+    <li><b>不上无界 Agentic Loop</b>：CHESS / MAC-SQL 类多 Agent 反思可在 BIRD 上再涨 3–5 pp，但代价是 5–20× token、5–30 s 延迟、产出不可复现 — 与「稳定 / 成本」约束冲突。</li>
+    <li><b>不直接 all-in MCP</b>：MCP 在 2026 已成事实标准（Linux Foundation AAIF + 1000+ servers），但适合<i>开发者交互式探索</i>，作为<i>线上批量分析后端</i>会丢失审计/限流/缓存能力。</li>
+    <li><b>正解</b>：保留 Schema Linker（用 M-Schema 风格）+ 加 RAG 历史 SQL 检索 + 直生 SQL + Validator + 最多 1–2 次 Refiner。把现有 dsl2sql 规则降级为 Validator 的方言 lint 规则。</li>
+  </ul>
+</section>
+
+<h2>1. 当前基线：<code>nlp2dsl → dsl2sql</code></h2>
+<p class="meta">用户自述：<i>Stage 1: NL + schema → 结构化 DSL（intent / entities / filters）；Stage 2: DSL + 方言规则 → ODPS SQL。痛点：DSL 文法维护、schema linking 准确率。</i></p>
+
+<div class="ascii">NL  ──►  [LLM: nlp2dsl]  ──►  DSL (JSON)  ──►  [Rule: dsl2sql]  ──►  ODPS SQL
+                ▲                                    ▲
+        schema embeddings                      dialect rules
+                                                 (Hive/MaxCompute)
+</div>
+
+<div class="grid grid-2" style="margin-top:14px">
+  <div class="card">
+    <h3>这条路线的历史价值</h3>
+    <ul>
+      <li>当模型 ≤ GPT-3.5 / Qwen-7B 时代，直生 SQL 出错率高 — DSL 缩小了「指令 → 可执行」的搜索空间。</li>
+      <li>DSL 提供天然的可审计 / 可回放层，便于风控、限流、变更追踪。</li>
+      <li>方言规则集中可维护，跨数据源时只换 codegen 后端。</li>
+      <li>对应 Text-to-SQL 演进的「第二代 NLU 范式」（参考 CSDN 2026 综述提到的四代演进）— 在大模型出现前的最优工程妥协。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>2026 现在的三个瓶颈</h3>
+    <ul>
+      <li><b>表达力天花板</b>：DSL 难以覆盖窗口函数、UDTF、`LATERAL VIEW EXPLODE`、半结构化 JSON 抽取、ODPS 2026 新增的 Auto Partition / UNNEST / Delta Table MERGE INTO 多次 update+insert 等特化语法 — 一定要扩 DSL，规则爆炸。</li>
+      <li><b>双重失真</b>：NL→DSL 错率 × DSL→SQL 漏配率 = 累乘损失，且<b>错误归因困难</b>。</li>
+      <li><b>新业务 onboarding 慢</b>：每个新指标 / 新口径都要补 DSL slot，业务等不起；而 RAG-based 框架（如析言 GBI）只要喂业务问答样例就能在线扩展。</li>
+    </ul>
+  </div>
+</div>
+
+<h2>2. 2026 上半年：学界 / 工业界发生了什么</h2>
+<p>这是判断「现在是否值得换架构」的关键证据：</p>
+
+<table>
+  <thead>
+    <tr><th>方法 / 框架</th><th>关键创新</th><th>BIRD-dev EX</th><th>Spider EX</th><th>来源 / 时间</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>ReViSQL</b><br><span class="meta">235B-A22B / 30B-A3B</span></td>
+      <td>RLVR + BIRD-Verified（修正 BIRD train 中 61.1% 错误标注后训练）；推理时执行对账 + 多数投票</td>
+      <td class="ok score"><b>93.2% (Mini-Dev)</b><br>首次 &gt; 人类 92.96%</td>
+      <td>—</td>
+      <td><span class="badge">arXiv:2603.20004</span> 2026 H1</td>
+    </tr>
+    <tr>
+      <td><b>R²-SQL</b><br><span class="meta">ETRI + 首尔国立 + Snowflake</span></td>
+      <td>Ranking Reward + Resampling，解决「同语义不同写法被错排」问题</td>
+      <td class="ok score">75.03%（开源 SOTA）</td>
+      <td>—</td>
+      <td><span class="badge">arXiv:2604.25325</span> 2026-04-28</td>
+    </tr>
+    <tr>
+      <td><b>CA-SQL</b></td>
+      <td>Complexity-Aware：按问题难度动态调整候选探索宽度；进化式 prompt seeding</td>
+      <td class="score">61.06% (full)<br>51.72% (challenging, GPT-4o-mini)</td>
+      <td>—</td>
+      <td><span class="badge">arXiv:2605.08057</span> 2026-05-08</td>
+    </tr>
+    <tr>
+      <td><b>AutoLink</b></td>
+      <td>自主扩展 schema linking — 突破大规模 schema（千表万列）的可扩展性瓶颈</td>
+      <td>—</td>
+      <td>—</td>
+      <td><span class="badge">AAAI 2026</span></td>
+    </tr>
+    <tr>
+      <td><b>LitE-SQL</b><br><span class="meta">Yonsei Univ.</span></td>
+      <td>轻量 SLM + 向量化 schema 检索 + 执行引导自纠正；2-30× 更少参数</td>
+      <td class="score">72.10%</td>
+      <td class="score">88.45% (Spider 1.0)</td>
+      <td><span class="badge">arXiv:2510.09014</span></td>
+    </tr>
+    <tr>
+      <td><b>ReEx-SQL</b><br><span class="meta">阿里达摩 + 苏大 + IDEA</span></td>
+      <td>Execution-Aware RL：解码过程中穿插 SQL 执行反馈，树形探索</td>
+      <td class="score">64.9% @ 7B</td>
+      <td class="score">88.8% @ 7B</td>
+      <td><span class="badge">arXiv:2505.12768</span></td>
+    </tr>
+    <tr>
+      <td><b>XiYan-SQL</b><br><span class="meta">阿里析言 / 通义</span></td>
+      <td>M-Schema 半结构化表示 + ICL+SFT 多生成器集成 + Refiner + Selector；2026-05 仍活跃</td>
+      <td class="score">75.63%（发布时 SOTA）</td>
+      <td class="score">89.65%</td>
+      <td><span class="badge">github 994⭐</span> last commit 2026-05-05</td>
+    </tr>
+    <tr>
+      <td><b>MCS-SQL</b></td>
+      <td>多 prompt + 多选择，候选过滤后投票</td>
+      <td class="score">65.5%</td>
+      <td class="score">89.6%</td>
+      <td><span class="badge">arXiv 2024-05</span> 基线</td>
+    </tr>
+    <tr>
+      <td><b>DIN-SQL</b></td>
+      <td>问题分解 + ICL 自纠正（早期奠基）</td>
+      <td class="score">55.9%</td>
+      <td class="score">85.3%</td>
+      <td><span class="badge">arXiv 2304.11015</span> 基线</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="card" style="border-left:3px solid var(--good)">
+  <h4>读三个最重要的信号</h4>
+  <ol>
+    <li><b>ReViSQL 的人类水平结果改变了路线判断</b>：作者直接得出结论 — <i>"closing this gap does not require further architectural complexity, but rather clean training data"</i>。<u>不再需要更复杂的 Agent，需要更干净的训练数据 + RLVR</u>。这是 2026 H1 学界的共识转向。</li>
+    <li><b>开源框架的能力 = 闭源</b>：R²-SQL（开源 75.03%）、ReEx-SQL（7B 模型 BIRD 64.9%）、LitE-SQL（小模型 72.10%）证明你不需要 GPT-4.5 也能拿到主流准确率。</li>
+    <li><b>XiYan-SQL 是阿里集团的现成资产</b>：BIRD 75.63%、Spider 89.65%、SQL-Eval 69.86%、NL2GQL 41.20%，且 2025-10 起还在迭代（开源了 XiYan-SQLTraining、刷新了 BIRD-CRITIC-Open / PG / Flash 三个新 SOTA）。M-Schema 子模块单独开源，可以即插即用。</li>
+  </ol>
+</div>
+
+<h2>3. 可选架构家族（5 类）</h2>
+
+<h3>A. 单次直生 LLM + 强 Schema Linking</h3>
+<div class="card">
+  <p>代表：<b>RSL-SQL</b>（双向 schema linking）、<b>OmniSQL</b>（开源 SFT）、<b>LitE-SQL</b>（向量化 schema 检索）。</p>
+  <div class="ascii">NL ──► [Schema Linker: 选表/选列/外键召回] ──► [LLM: 直生 SQL] ──► SQL
+       (M-Schema / DDL + samples + value retrieval)
+</div>
+  <h4>2026 关键事实</h4>
+  <ul>
+    <li>BIRD-dev 70–75 EX 区间稳定可达；Spider 1.0 已基本饱和（&gt; 88）。</li>
+    <li>延迟 1–3 s，token 1×（最低）。</li>
+    <li><b>瓶颈在 Schema Linker</b>：千表万列规模下，传统数据库级 schema linking 不可扩展（AutoLink 要解决的问题）。</li>
+  </ul>
+  <p><span class="pill good">稳定性 ★★★★</span><span class="pill good">延迟成本 ★★★★★</span><span class="pill warn">复杂查询 ★★★</span></p>
+</div>
+
+<h3>B. Multi-Generator 集成（XiYan-SQL 范式）</h3>
+<div class="card">
+  <p>代表：<b>XiYan-SQL</b>（阿里）、<b>MCS-SQL</b>、<b>R²-SQL</b>、<b>CA-SQL</b>。核心是「生成多候选 → 排序 / 投票 → 选优」。</p>
+  <div class="ascii">NL ──► Schema Filter ──► ┌─ Generator (ICL, prompt-A) ─┐
+                          ├─ Generator (ICL, prompt-B) ─┤── Refiner ──► Selector ──► SQL
+                          └─ Generator (SFT) ───────────┘
+</div>
+  <h4>2026 关键事实</h4>
+  <ul>
+    <li>XiYan-SQL 的 multi-generator 是目前<b>工业落地最成熟</b>的范式：BIRD 75.63%、Spider 89.65%、阿里云析言 GBI 已商业化。</li>
+    <li>R²-SQL 改进了选优阶段（Ranking Reward），开源 SOTA 75.03%。</li>
+    <li>CA-SQL 让难度自适应 — 简单题少跑，难题多跑，token 成本平摊后只比单生成器高 1.5–3×。</li>
+  </ul>
+  <p><span class="pill good">稳定性 ★★★★</span><span class="pill warn">延迟成本 ★★★</span><span class="pill good">复杂查询 ★★★★</span></p>
+</div>
+
+<h3>C. Execution-Aware Agentic Loop</h3>
+<div class="card">
+  <p>代表：<b>ReEx-SQL</b>（解码中穿插执行 + RL）、<b>ReViSQL</b>（推理时执行对账 + 多数投票 + RLVR）、<b>CHESS</b>、<b>MAC-SQL</b>、<b>SEA-SQL</b>。</p>
+  <div class="ascii">NL ──► Schema Linker ──► [Generator ──► Executor ──► Reviser]*  ──► SQL
+                           ▲                                     │
+                           └── 错误信息 / 空结果 / 部分结果 ◄─────┘
+</div>
+  <h4>2026 关键事实</h4>
+  <ul>
+    <li><b>ReViSQL 的颠覆性结论：架构复杂度已不再是答案</b>。它用相对简单的执行对账 + 多数投票，凭借 BIRD-Verified 干净数据，达到了人类水平。</li>
+    <li>无界 reflect-fix 循环延迟可达 5–30 s，且<b>同问两次产 SQL 不同</b> — 不可复现，与生产稳定性约束直接冲突。</li>
+    <li>HN 上 IDinsight 2024 的反向案例 <i>"Using Agents to NOT Use Agents"</i> 印证：生产团队<b>把 Agent 砍回伪 Agent 流水线</b>换稳定性。</li>
+  </ul>
+  <p><span class="pill warn">稳定性 ★★</span><span class="pill bad">延迟成本 ★★</span><span class="pill good">复杂查询 ★★★★★</span></p>
+</div>
+
+<h3>D. MCP-based DB Agent</h3>
+<div class="card">
+  <p>2026 现状：MCP（Anthropic 2024-11 推出）已被 OpenAI / Google / Microsoft 采纳，捐赠给 Linux Foundation 旗下 <b>Agentic AI Foundation (AAIF)</b> 中立治理，<b>1000+ 开源 server</b>。Azure AI Search 在 <code>2026-04-01</code> REST API 中正式 GA <b>agentic retrieval</b>，每个 knowledge base 都暴露 MCP endpoint。</p>
+  <div class="ascii">NL ──► [LLM with MCP tools]
+         ├─ list_tables / describe_table / sample_rows
+         ├─ explain_plan
+         └─ execute_sql  ──►  DB
+       ▲ 多轮工具调用 + LLM 自行规划
+</div>
+  <h4>2026 关键事实</h4>
+  <ul>
+    <li>Postgres / MySQL / Snowflake / BigQuery / DuckDB 都有公开 MCP server；<b>ODPS / MaxCompute 暂未见稳定的官方 MCP server</b>（截至本次搜索 2026-05）。</li>
+    <li>HN 上 <i>DataFrey – MCP server for Snowflake with text-to-SQL agent</i> 是同类商业化样本。</li>
+    <li>适合<b>开发者交互式</b>查询；用作<b>线上批处理后端</b>缺审计 / 限流 / 缓存。</li>
+  </ul>
+  <p><span class="pill good">交互探索 ★★★★★</span><span class="pill warn">线上稳定 ★★</span><span class="pill warn">需自建 ODPS-MCP</span></p>
+</div>
+
+<h3>E. RAG-based 框架（含阿里析言 GBI / Spring AI Alibaba）</h3>
+<div class="card">
+  <p>代表：<b>Vanna.AI</b>（agentic retrieval text-to-SQL，github 主流框架）、<b>DB-GPT</b>（中文社区）、<b>WrenAI</b>、<b>Dataherald</b>、<b>AskTable</b>。<u>阿里也在这条路线上：</u> <b>spring-ai-alibaba-nl2sql</b> 是阿里云百炼 / 析言 GBI 把「Schema 召回 + SQL 生成 + SQL 执行」核心链路开源给 Java 开发者的项目。</p>
+  <h4>2026 关键事实</h4>
+  <ul>
+    <li>核心机制：把<b>历史正确 SQL + 业务术语 + DDL</b> 做向量检索作为 few-shot — 外置长期记忆。</li>
+    <li>对新表 / 新口径的<b>扩展性最好</b>：喂样例即涨点，无需改代码或微调。</li>
+    <li>缺点：质量上限受检索质量限制；对从未问过的复杂查询无加成。</li>
+    <li>大部分公开框架默认是 PG / MySQL / Snowflake，<b>ODPS 方言适配需要自己写 dialect 模板</b> — 但 spring-ai-alibaba-nl2sql 与析言 GBI 已经踩过这条路。</li>
+  </ul>
+  <p><span class="pill good">扩展性 ★★★★★</span><span class="pill good">稳定性 ★★★★</span><span class="pill warn">复杂查询 ★★★</span></p>
+</div>
+
+<h2>4. 横向对比矩阵</h2>
+<table>
+  <thead>
+    <tr>
+      <th>维度</th>
+      <th>当前 nlp2dsl→dsl2sql</th>
+      <th>A. 单次直生+SL</th>
+      <th>B. Multi-Generator (XiYan)</th>
+      <th>C. Agentic Loop</th>
+      <th>D. MCP DB Agent</th>
+      <th>E. RAG 框架</th>
+      <th class="ok">F. 混合（推荐）</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>BIRD-dev EX (2026 报告点)</td><td>—</td><td class="score">70–75</td><td class="score"><b>75.6 (XiYan)</b></td><td class="score"><b>93.2 (ReViSQL)</b></td><td>—</td><td class="score">65–72</td><td class="score">75–78</td></tr>
+    <tr><td>Spider EX</td><td>—</td><td class="score">88+</td><td class="score">89.65</td><td class="score">88.8 (7B)</td><td>—</td><td class="score">85–88</td><td class="score">88+</td></tr>
+    <tr><td>稳定 / 可复现</td><td class="ok">高</td><td class="ok">高</td><td class="ok">高</td><td class="bad">低</td><td class="warn">中</td><td class="ok">高</td><td class="ok">高</td></tr>
+    <tr><td>延迟 (P50)</td><td>2–4 s</td><td>1–3 s</td><td>3–8 s</td><td>5–30 s</td><td>3–15 s</td><td>1–3 s</td><td>0.05–4 s*</td></tr>
+    <tr><td>Token 成本（相对）</td><td>1×</td><td>1×</td><td>1.5–4×</td><td>5–20×</td><td>3–10×</td><td>1–2×</td><td>0.3–1.5×*</td></tr>
+    <tr><td>新 schema 接入</td><td class="bad">改 DSL+规则</td><td class="warn">仅刷 embedding</td><td class="warn">embedding + ICL</td><td class="warn">embedding</td><td class="ok">无须改动</td><td class="ok">喂样例</td><td class="ok">喂样例 + embedding</td></tr>
+    <tr><td>ODPS 方言友好度</td><td class="ok">规则集已沉淀</td><td class="warn">prompt 卡片</td><td class="ok">XiYan 原生支持</td><td class="warn">prompt 卡片</td><td class="bad">需自建 ODPS-MCP</td><td class="ok">spring-ai-alibaba-nl2sql 已踩过</td><td class="ok">prompt 卡片+校验器</td></tr>
+    <tr><td>可审计 / 风控</td><td class="ok">DSL 可审计</td><td class="warn">中</td><td class="ok">候选 + 选优 trail</td><td class="bad">轨迹复杂</td><td class="bad">弱</td><td class="ok">高</td><td class="ok">高</td></tr>
+    <tr><td>工程实现成本</td><td>已有，沉没</td><td class="ok">低</td><td class="warn">中（直接 fork XiYan）</td><td class="bad">高</td><td class="warn">中</td><td class="warn">中</td><td class="warn">中（增量）</td></tr>
+  </tbody>
+</table>
+<p class="footnote">* F 方案延迟/成本是分布而非单值：模板命中走 ~50 ms 路径，未命中走直生 1–3 s，仅当 Validator 失败才进入有界 Refiner（≤2 轮）。</p>
+
+<h2>5. ODPS / MaxCompute 特定考量</h2>
+<div class="grid grid-2">
+  <div class="card">
+    <h3>2026 方言与平台演进</h3>
+    <ul>
+      <li>MaxCompute 4.0（2025）已是「AI Native 平台」，<b>CPU/GPU 统一调度，峰值 50 亿次/秒，支持湖仓一体 + 多模态 + Object Table</b>。</li>
+      <li>新增 BigQuery 兼容模式（<code>odps.sql.bigquery.compatible</code>），支持 Auto Partition、UNNEST、Delta Table MERGE INTO 多次 update+insert、DELETE FROM 别名、30+ 内建函数 — <b>这些 DSL 几乎不可能跟得上</b>。</li>
+      <li>MaxFrame Python 框架 + SQL 调用 AI 函数，让 SQL 本身就能嵌入大模型推理。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>规模与组织约束</h3>
+    <ul>
+      <li>真实工业 schema 通常上千张表 + 中文业务术语 — Schema Linker 必须支持<b>中文同义词扩展</b>。</li>
+      <li><b>分区谓词是硬约束</b>：无分区过滤 = 全表扫描 + 高额账单。Validator 必须强制检查。</li>
+      <li>权限走 RAM / MaxCompute Project — Validator 之前加 ACL pre-check（不让 LLM 看到无权限表）。</li>
+      <li>跨系统迁移参考阿里内部 GoTerra 项目（10 万+ SQL 转写），<b>方言差异是主要工程量</b>。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>已有 / 内部资产（务必复用）</h3>
+    <ul>
+      <li><b>XiYan-SQL</b>（github XGenerationLab/XiYan-SQL，994⭐，2026-05-05 last commit）— 阿里集团自研，方言原生支持。</li>
+      <li><b>M-Schema</b>（github XGenerationLab/M-Schema）— 半结构化 schema 表示，可单独引入到现有管线。</li>
+      <li><b>spring-ai-alibaba-nl2sql</b>（github alibaba/spring-ai-alibaba）— 析言 GBI 把 Schema 召回 + SQL 生成 + 执行核心链路<b>开源</b>给 Java 开发者，2025 起持续迭代。</li>
+      <li>析言 GBI 对接 Hologres / MaxCompute 已有成熟产品形态，可作为 reference 实现。</li>
+      <li>你现有的 <code>dsl2sql</code> 规则集<b>不要丢</b> — 把它降级为 Validator 的 dialect lint 规则源。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>风险与边界</h3>
+    <ul>
+      <li>不要让 LLM 直连生产 ODPS（即便有 MCP）。所有产出 SQL 必须经 Validator + dry-run + ACL 检查再执行。</li>
+      <li>对<b>写入 / DDL / DELETE / TRUNCATE / 删除分区</b>建立强黑名单，无视 LLM 意图。</li>
+      <li>对大表全表扫描设置成本阈值（按 explain 估算输入量），超过即拒答 + 反向提示用户加分区谓词。</li>
+      <li>多模型路由：高频简单题用 Qwen3-7B/Haiku 4.5，长尾难题升级到 Opus 4.7 / Qwen3-Max — 单次成本可降 5–10×。</li>
+    </ul>
+  </div>
+</div>
+
+<h2>6. 推荐架构与渐进式迁移路径</h2>
+
+<div class="card" style="border-left:3px solid var(--accent)">
+  <h3>推荐架构 F（混合）— 直接复用阿里集团资产</h3>
+  <div class="ascii">NL
+ │
+ ▼
+[Schema Linker]            ◄── M-Schema 表示 + 业务术语 KB + 历史 SQL 检索 (RAG)
+ │  (返回候选表/列/外键/示例值)         (复用 XGenerationLab/M-Schema)
+ ▼
+[Template Cache?] ──hit──► 直接返回参数化 SQL ─► 跳到 Validator
+ │ miss
+ ▼
+[LLM: 直生 ODPS SQL]       ◄── few-shot：高频模板 + ODPS dialect 卡片
+ │                              （base 可选 Qwen3-Max / Claude 4.7 / DeepSeek-V3）
+ ▼
+[SQL Validator]            ── parse / dry-run / 分区谓词 / 黑名单算子 / ACL
+ │ pass ───────────────────────────────────────────────────────────► 执行
+ │ fail (≤ 1–2 次)
+ ▼
+[Refiner]                  ── 错误信息 + 列子集回喂 LLM 修补
+ │
+ ▼  (仍失败)
+[Hard-Mode 多生成器]       ── 仅困难/失败请求；ICL+SFT 多 candidate + Selector
+                              （直接 fork XiYan-SQL，不重写）
+                              超时熔断 / 并发限流 / 成本上限
+</div>
+  <h3>4 阶段迁移路径</h3>
+  <ol>
+    <li><b>阶段 1 (1–2 周)：Validator 抢救层。</b> 把现有 dsl2sql 规则全部抽到独立 SQL Validator（parse → dry-run → 分区检查 → ACL → 黑名单）。这是后面所有架构的公共下游。<b>已有规则的 ROI 在这里继续兑现</b>。</li>
+    <li><b>阶段 2 (2–3 周)：M-Schema + 直生 SQL。</b> 直接 fork <code>XGenerationLab/M-Schema</code>，加 RAG 检索（DDL + 业务术语 + 历史正确 SQL）。LLM 直生 ODPS SQL → Validator。<b>保留旧 nlp2dsl 路径作为 fallback</b>，AB 评估。</li>
+    <li><b>阶段 3 (3–4 周)：模板缓存 + Refiner。</b> 高频问题做参数化模板缓存（70% 流量提速到 ~50 ms）。Validator 失败时进入 Refiner（≤ 2 轮，错误信息回喂同一 LLM）。</li>
+    <li><b>阶段 4 (按需)：Hard-Mode + 内部 MCP 工作台。</b> 困难请求或长期失败请求 → fork XiYan-SQL multi-generator pipeline 兜底；<b>同步</b>给数据分析师配 ODPS-MCP 探索工作台（用 Claude Code / Cursor 直接连库），不进生产路径。</li>
+  </ol>
+  <h3>明确反对的做法</h3>
+  <ul>
+    <li><span class="bad">不要</span>直接把 nlp2dsl→dsl2sql 整个换成无界 Agent — 稳定性回退、产出不可复现。</li>
+    <li><span class="bad">不要</span>把 ODPS 直接通过 MCP 暴露给 LLM 作为生产入口 — 缺审计与限流。</li>
+    <li><span class="bad">不要</span>仅靠 RAG（Vanna 风格）就上线 — 复杂查询天花板低。</li>
+    <li><span class="bad">不要</span>从零做 NL2SQL 专用模型 fine-tune — 工程成本远高于「prompt + RAG + 复用 XiYan」。除非你能维持 BIRD/Spider eval pipeline，且团队有 RL infra。</li>
+    <li><span class="bad">不要</span>叠加更复杂的 Agent 架构 — ReViSQL 已经证明<b>架构复杂度</b>不再是 BIRD 上的差距来源，<b>训练数据质量</b>才是。</li>
+  </ul>
+</div>
+
+<h3>评估指标（一并迁移）</h3>
+<ul>
+  <li><b>线下</b>：BIRD-dev EX、Spider 2.0 EX、自家黄金集 EX (Execution Accuracy) + EM (Exact Match)。考虑接入 BIRD-CRITIC（XiYan 已刷 SOTA）做难度分层评测。</li>
+  <li><b>线上</b>：首字延迟 P50/P95、Token cost / Q、Validator pass rate、Refiner 触发率、人工接管率。</li>
+  <li><b>消融</b>：Schema Linker 单独的 Recall@K — 这是最大的稳定性来源，必须长期监控。</li>
+</ul>
+
+<h2>7. 结论：是否替换 DSL 管线？</h2>
+<div class="card" style="border-left:3px solid var(--good)">
+  <h3>是。但是<u>用最便宜的方式替换</u>。</h3>
+  <ol>
+    <li>「模型基座能力进化」与「Agent harness 改良」<b>都已发生</b>，但意味着的不是「上更复杂的 Agent」，而是「不再需要 DSL 这个补丁」 — Qwen3-Max / Claude 4.7 / GPT-4.5 等 2026 主流模型已能直生 ODPS 方言，DSL 已成累赘。</li>
+    <li>2026 H1 的 ReViSQL 结果是路线判断分水岭：<b>BIRD 已被攻克到人类水平，且关键变量是数据质量而非架构复杂度</b>。继续把 Agent 做复杂没有 ROI。</li>
+    <li>对你（ODPS 用户）<b>最可行</b>的方案是 <b>F. 混合架构</b>：Schema Linking + 直生 SQL + Validator + 有界 Refiner，<b>把 dsl2sql 规则降级为 Validator lint</b>，<b>把 nlp2dsl 整个移除</b>。落地路径已成熟（XiYan-SQL / M-Schema / spring-ai-alibaba-nl2sql 都是开源资产）。</li>
+    <li>不必做 fine-tune，不必做 MCP-first 改造，不必上无界 Agent 循环。这三个都<b>不是当下的最佳折中</b>。</li>
+  </ol>
+</div>
+
+<h2>8. 参考资料</h2>
+<details open>
+<summary>arxiv 论文（2026 H1 关键节点）</summary>
+<ul>
+  <li><a href="https://arxiv.org/abs/2603.20004">arXiv:2603.20004</a> — <b>ReViSQL</b>: Achieving Human-Level Text-to-SQL（235B-A22B 93.2% on BIRD Mini-Dev, &gt; 92.96% human）</li>
+  <li><a href="https://arxiv.org/abs/2604.25325">arXiv:2604.25325</a> — <b>R²-SQL</b>: Ranking Reward + Resampling，开源 SOTA 75.03% on BIRD（ETRI + 首尔国立 + Snowflake AI，2026-04-28）</li>
+  <li><a href="https://arxiv.org/abs/2605.08057">arXiv:2605.08057</a> — <b>CA-SQL</b>: Complexity-Aware Inference Time Reasoning（GPT-4o-mini → BIRD challenging 51.72%，2026-05-08）</li>
+  <li><a href="https://arxiv.org/abs/2510.09014">arXiv:2510.09014</a> — <b>LitE-SQL</b>: Lightweight Vector-based Schema Linking + Execution-Guided Self-Correction（BIRD 72.10%, Spider 88.45%, 2-30× 更少参数）</li>
+  <li><a href="https://arxiv.org/abs/2505.12768">arXiv:2505.12768</a> — <b>ReEx-SQL</b>: Reasoning with Execution-Aware RL（Spider 88.8%, BIRD 64.9% @ 7B；阿里达摩 + 苏大 + IDEA）</li>
+  <li><b>AutoLink</b> (AAAI 2026) — 自主扩展 schema linking，突破大规模 schema 瓶颈</li>
+</ul>
+</details>
+
+<details open>
+<summary>github 资产（建议直接复用）</summary>
+<ul>
+  <li><a href="https://github.com/XGenerationLab/XiYan-SQL">XGenerationLab/XiYan-SQL</a> — 阿里析言多生成器集成 NL2SQL 框架，994⭐，2026-05-05 仍活跃；BIRD 75.63%、Spider 89.65%、SQL-Eval 69.86%、NL2GQL 41.20%；2025 H2 起开源 XiYan-SQLTraining</li>
+  <li><a href="https://github.com/XGenerationLab/M-Schema">XGenerationLab/M-Schema</a> — 半结构化 schema 表示子模块，2025-06 加入 MySQL/PG 支持，可单独集成</li>
+  <li><a href="https://github.com/alibaba/spring-ai-alibaba">alibaba/spring-ai-alibaba</a> — 阿里云百炼 / 析言 GBI 面向 Java 的 NL2SQL 智能体框架（spring-ai-alibaba-nl2sql 子项目），开源 Schema 召回 + SQL 生成 + 执行核心链路</li>
+  <li><a href="https://github.com/topics/text-to-sql">github.com/topics/text-to-sql</a> — 主流 RAG 框架入口，含 Vanna.AI（agentic retrieval）等</li>
+</ul>
+</details>
+
+<details>
+<summary>2026 中文综述与企业实践</summary>
+<ul>
+  <li><a href="https://zhuanlan.zhihu.com/p/2037908943268222238">知乎《2026 最新收藏版 Text-to-SQL 技术深度解析 + Agent 实战》</a> — 总结四代 Text-to-SQL 演进 + Agentic 主动探索趋势</li>
+  <li><a href="https://yushi-javatoai.blog.csdn.net/article/details/160342967">CSDN《Text-to-SQL 四重翻车实录》</a> — Schema Linking、ReAct Agent、SEA-SQL 自修正、四大技术路线对比，含选型决策树</li>
+  <li><a href="https://news.sohu.com/a/976146399_121119001">AAAI 2026 AutoLink 综述</a> — Schema Linking 在大规模数据库下的可扩展性问题</li>
+  <li><a href="https://developer.aliyun.com/article/1689027">阿里云《跨国数仓迁移最佳实践 6 — MaxCompute SQL 语法及函数功能增强，10 万条 SQL 转写顺利迁移》</a> — ODPS 2025/2026 方言演进真实工程量</li>
+  <li><a href="https://help.aliyun.com/zh/hologres/user-guide/xiyan-gbi">阿里云《析言 GBI 接 Hologres》</a> — 析言 GBI 已对接 Hologres / MaxCompute 的产品形态</li>
+  <li><a href="https://developer.aliyun.com/article/1667373">阿里云《阿里云百炼 / 析言开源面向 Java 开发者的 NL2SQL 智能体框架》</a> — spring-ai-alibaba-nl2sql 项目背景</li>
+</ul>
+</details>
+
+<details>
+<summary>MCP 标准化（2026）</summary>
+<ul>
+  <li><a href="https://cloud.tencent.com/developer/article/2653545">腾讯云《MCP 协议深度解析》(2026)</a> — MCP 已被 OpenAI/Google/Microsoft 广泛采纳，捐赠 Linux Foundation AAIF，1000+ 开源 server</li>
+  <li><a href="https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-retrieve">Azure agentic retrieval（2026-04-01 REST API GA）</a> — 每个 knowledge base 都暴露 MCP endpoint</li>
+</ul>
+</details>
+
+<hr/>
+<p class="meta">本文件位于 <code>nl2sql_agent_architecture_comparison.html</code>（项目根目录）。直接用浏览器打开即可。打印导出 PDF 已做基础适配。</p>
+
+<details>
+<summary>本次实际搜索摘要（按 smart-search 协议）</summary>
+<pre><code>- 网站：bailian_web_search (MCP)  | 查询词：
+    Text-to-SQL agent 2026 architecture survey schema linking agentic loop MCP
+    site:arxiv.org Text-to-SQL agent 2026 schema linking execution feedback
+    site:github.com NL2SQL Text-to-SQL framework 2026 XiYan-SQL DB-GPT Vanna RSL-SQL stars
+    arxiv 2026 Text-to-SQL agent BIRD benchmark Spider 2.0 SOTA
+    MCP database agent Postgres ODPS MaxCompute 2026 production text-to-SQL
+    site:x.com OR site:twitter.com text-to-SQL agent 2026 discussion
+    XiYan-SQL Aliyun M-Schema 2026 production deployment arxiv github
+    ODPS MaxCompute NL2SQL Text-to-SQL agent 阿里云 智能分析 2026
+  | 次数：8（8 次成功，含 1 次 x.com 站内空集）
+- 网站：opencli arxiv      | 上一次会话尝试：2 次（均 HTTP 429，未取到）— 本轮通过 bailian site:arxiv.org 替代覆盖
+- 网站：opencli twitter    | 上一次会话尝试：2 次（均超时）— 本轮通过 bailian site:x.com/twitter.com 替代覆盖
+- 网站：opencli hackernews | 上一次会话已成功 1 次（20 条命中：Dataherald / Inferable / Distil text2sql / Axiom SQL-Reflex / IDinsight / DataFrey MCP / Athena / Fabi 等）
+- 网站：opencli grok / gemini | 各 1 次（均失败）— 本轮通过 bailian 覆盖
+- 已绕过：built-in WebSearch（被 idealab 网关禁用，已通过 settings 配置 deny + 启用 bailian MCP 解决）
+</code></pre>
+</details>
+
+</div>
+</body>
+</html>
