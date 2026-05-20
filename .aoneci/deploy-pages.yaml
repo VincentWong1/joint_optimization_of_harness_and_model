@@ -1,0 +1,18 @@
+name: deploy-pages
+triggers:
+  push:
+jobs:
+  deploy:
+    image: alios-8u
+    steps:
+      - uses: checkout
+      - uses: setup-env
+        inputs:
+          node-version: 20
+      - id: build-website
+        run: |
+          echo "no build needed for static html"
+      - uses: deploy-pages
+        inputs:
+          deploy-dir: public
+          production-branch: main
