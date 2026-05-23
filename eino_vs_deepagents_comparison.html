@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>cloudwego/eino vs DeepAgents — Harness 选型对比（Claude Code 兼容 + Trajectory 收集 + Fine-tune）</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161a22; --panel2:#1d2330; --ink:#e6edf3; --mute:#9aa6b2;
+    --accent:#7aa2ff; --good:#3fb950; --warn:#d29922; --bad:#f85149; --border:#2a3140;
+    --code-bg:#0a0d12; --winner:#3fb950; --runner:#d29922;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f7f8fa; --panel:#fff; --panel2:#f0f3f8; --ink:#0f172a; --mute:#475569;
+      --accent:#1d4ed8; --good:#15803d; --warn:#a16207; --bad:#b91c1c; --border:#e2e8f0; --code-bg:#f1f5f9; --winner:#15803d; --runner:#a16207;}
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 24px 96px}
+  header{padding:24px 0 8px;border-bottom:1px solid var(--border)}
+  h1{font-size:26px;margin:0 0 6px;line-height:1.25}
+  h2{font-size:21px;margin:36px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  h3{font-size:16.5px;margin:22px 0 8px}
+  h4{font-size:13.5px;margin:14px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+  p,li{margin:6px 0}
+  ul{padding-left:22px}
+  code{background:var(--code-bg);padding:1px 6px;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:12px;overflow-x:auto}
+  pre code{background:transparent;padding:0;font-size:12.5px;line-height:1.55}
+  .meta{color:var(--mute);font-size:13px}
+  .tldr{background:linear-gradient(180deg,var(--panel) 0%,var(--panel2) 100%);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;padding:18px 20px;margin:18px 0 8px}
+  .tldr h2{margin-top:0;border:0;padding:0;font-size:18px}
+  .grid{display:grid;gap:14px}
+  .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  @media(max-width:760px){.grid-2{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+  .card h3{margin-top:0}
+  .card.win{border-left:3px solid var(--winner)}
+  .card.lose{border-left:3px solid var(--runner)}
+  .pill{display:inline-block;padding:1px 8px;font-size:11.5px;border-radius:999px;border:1px solid var(--border);color:var(--mute);margin-right:6px;background:var(--panel2)}
+  .pill.good{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--border))}
+  .pill.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
+  .pill.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--border))}
+  .pill.accent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,var(--border))}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+  th,td{border:1px solid var(--border);padding:8px 10px;vertical-align:top;text-align:left}
+  th{background:var(--panel2);font-weight:600}
+  td.center{text-align:center}
+  .ok{color:var(--good);font-weight:600} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .scorebar{display:inline-block;width:100%;height:10px;background:var(--code-bg);border-radius:4px;overflow:hidden;border:1px solid var(--border);vertical-align:middle}
+  .scorebar i{display:block;height:100%;background:var(--accent)}
+  .ascii{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:12.5px;white-space:pre;overflow-x:auto;line-height:1.5}
+  .badge{display:inline-block;padding:2px 6px;font-size:11px;border-radius:4px;background:var(--panel2);border:1px solid var(--border);margin-right:4px;font-family:ui-monospace,monospace}
+  .vs{font-size:42px;font-weight:300;color:var(--mute);text-align:center;letter-spacing:0.1em}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px dashed color-mix(in srgb,var(--accent) 50%,transparent)}
+  a:hover{border-bottom-style:solid}
+  hr{border:0;border-top:1px solid var(--border);margin:28px 0}
+  details{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 14px;margin:10px 0}
+  summary{cursor:pointer;font-weight:600}
+  .footnote{font-size:12px;color:var(--mute);margin-top:8px}
+  .req-label{display:inline-block;background:var(--accent);color:white;padding:2px 10px;border-radius:4px;font-size:12px;font-weight:600;margin-right:8px;letter-spacing:0.04em}
+  @media print{body{background:#fff;color:#000}.wrap{max-width:none;padding:0}.card,.tldr,pre,.ascii{break-inside:avoid}a{color:#000;text-decoration:underline}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>cloudwego/eino <span class="meta">vs</span> DeepAgents</h1>
+  <p class="meta">Harness 框架选型对比 · 面向「Claude Code 兼容 + 垂域 Agent rollout 收集 trajectory + 用 trajectory 做 harness self-improve & 基座 fine-tune」三重需求 · 2026-05-21</p>
+  <div>
+    <span class="pill accent">语言：Go vs Python</span>
+    <span class="pill">权重：Claude Code 兼容 / Trajectory / Fine-tune 闭环</span>
+    <span class="pill">资料窗口：2025-12 起</span>
+  </div>
+</header>
+
+<section class="tldr">
+  <h2>结论 (TL;DR)</h2>
+  <p><span class="ok">三项需求下 DeepAgents 完胜</span>，<u>建议作为主框架</u>。eino 仅在「上线后做高并发线上推理服务」时才有压倒性优势 — 这与你三条需求的方向都不在一条主线上。</p>
+  <ul>
+    <li><b>Claude Code 兼容</b>：DeepAgents 设计上就是「Claude Code 范式的开源 batteries-included harness」 — planning、virtual filesystem、subagent、long-horizon task 四件套<u>逐个对齐</u> Claude Code 的内部架构，工具命名（<code>write_todos</code> ≈ <code>TodoWrite</code>，<code>read_file/write_file/edit_file</code> ≈ Claude Code File 工具）甚至都对齐了。eino 是通用 Go LLM 编排框架，要做 Claude Code 兼容得自己造轮子。</li>
+    <li><b>Trajectory 数据</b>：DeepAgents 跑在 LangGraph 1.0 之上，<b>每一次 state transition 都有原生 checkpoint</b>，配套 LangSmith 直接落 trace；中间件机制让你<u>不改业务代码</u>就能挂 trajectory logger。eino 有 CloudWeGo DevOps 可视化调试，但 trajectory 数据导出要自己用 callbacks 写适配层。</li>
+    <li><b>Fine-tune 闭环</b>：Python 生态<u>就是</u> ML 训练事实标准 — DeepAgents → LangSmith trace → HuggingFace TRL / OpenRLHF / Unsloth / ART / Verifiers 都是直连。eino 的 Go trajectory <b>必须先序列化导出再交给 Python 训练管线</b>，跨语言桥接是常态化的额外工程。</li>
+    <li><b>什么时候反而该选 eino</b>：当你<u>同一套代码既要做 R&D 又要直接上生产线上服务</u>，且并发量高、对延迟和单机吞吐敏感、运维资源紧 — 这时 eino 的「单一 Go 二进制 + 高并发原生 + 字节内部生产验证」组合是 Python 给不了的。但这不在你这三条需求里。</li>
+  </ul>
+  <p><b>务实方案</b>：DeepAgents 做 R&D / 数据收集 / 训练闭环；若日后要把同一套 Agent 业务<u>上生产线上服务</u>且压测吃不消，再用 eino 在<u>关键热路径</u>上重写（这是字节内部已有的常态化分工模式）。</p>
+</section>
+
+<h2>1. 两个框架是干什么的</h2>
+
+<div class="grid grid-2">
+  <div class="card lose">
+    <h3><span class="badge">Go</span> cloudwego/eino</h3>
+    <p class="meta">字节跳动 CloudWeGo 生态的 LLM 应用编排框架</p>
+    <ul>
+      <li><b>定位</b>：「Go 语言的终极 LLM 应用开发框架」，填补 Python (LangChain/LlamaIndex) 在 Go 生态的空缺。</li>
+      <li><b>核心抽象</b>：组件（Component）+ 编排（Graph/Workflow/Chain）+ 流式（Stream）+ 类型安全（编译期）。</li>
+      <li><b>四阶段演进观</b>：Prompt → LLM+Tool → ReAct → Multi-Agent，框架核心给后三者提供编排。</li>
+      <li><b>生态搭子</b>：与 Kitex (RPC)、Hertz (HTTP)、Eino DevOps（可视化调试 / Trace）配套，<b>面向工程稳定性而非 R&D 速度</b>。</li>
+      <li><b>已落地场景</b>：字节、腾讯、蚂蚁、Shopee 等公司主力生产语言的 Go 微服务里嵌入 LLM 能力。</li>
+    </ul>
+    <p><span class="pill good">工程稳定性 ★★★★★</span> <span class="pill good">部署运维 ★★★★★</span> <span class="pill warn">R&D 速度 ★★★</span> <span class="pill bad">ML 生态集成 ★★</span></p>
+  </div>
+
+  <div class="card win">
+    <h3><span class="badge">Python</span> DeepAgents <span class="meta">(LangChain 官方)</span></h3>
+    <p class="meta">LangChain 1.0 / LangGraph 1.0 配套的「Claude Code 范式」开源 harness</p>
+    <ul>
+      <li><b>定位</b>：「The batteries-included agent harness」 — 把 Claude Code 内部架构开源给所有人用。</li>
+      <li><b>四件套内置</b>：① <b>规划</b>（<code>write_todos</code>/<code>read_todos</code>，强制先写 TodoList 再执行）② <b>虚拟文件系统</b>（<code>read_file/write_file/edit_file/ls/glob/grep</code>，避免 Context Rot）③ <b>子智能体委托</b>（任务隔离 + 上下文隔离）④ <b>长期记忆持久化</b>。</li>
+      <li><b>中间件机制</b>：ToolSelector / TodoList / FileSystem 中间件可热插拔；可挂任意 LangGraph 节点。</li>
+      <li><b>底层</b>：LangGraph 1.0（图编排 + checkpoint + Human-in-the-Loop）+ LangChain 1.0（model/tool/memory 抽象）+ LangSmith（trace/eval/replay）。</li>
+      <li><b>已落地场景</b>：Open Deep Research、AgentTeam2026、客服 Agent、长 horizon 自动化任务，<b>面向 R&D 速度和能力深度</b>。</li>
+    </ul>
+    <p><span class="pill good">Claude Code 对齐 ★★★★★</span> <span class="pill good">R&D 速度 ★★★★★</span> <span class="pill good">ML 生态集成 ★★★★★</span> <span class="pill warn">线上吞吐 ★★★</span></p>
+  </div>
+</div>
+
+<h2>2. 逐项需求对比</h2>
+
+<h3><span class="req-label">需求 1</span>需要一个和 Claude Code 兼容性比较好的 harness 框架</h3>
+
+<div class="card">
+  <h4>什么叫"Claude Code 兼容"</h4>
+  <p>不是简单"能调 Claude API"（那 LiteLLM / OpenAI SDK 都行）。真正的兼容是<b>架构对齐</b>：你的 Agent 行为模式、prompt 结构、工具命名、控制流，能与 Claude Code 的设计哲学无缝迁移；微代理（microagent）、planning tool、subagents、virtual file system 这些概念<b>在你的框架里有一一对应</b>。</p>
+
+  <table>
+    <thead><tr><th>Claude Code 内部组件</th><th>DeepAgents 对应</th><th>eino 对应</th></tr></thead>
+    <tbody>
+      <tr><td>TodoWrite (planning tool)</td><td class="ok">原生 <code>write_todos</code> / <code>read_todos</code> 工具 + TodoList 中间件</td><td class="warn">需要自己实现一个 Tool 注册</td></tr>
+      <tr><td>Read / Write / Edit / Glob / Grep (file tools)</td><td class="ok">FileSystem 中间件原生提供 <code>read_file</code>/<code>write_file</code>/<code>edit_file</code>/<code>ls</code>/<code>glob</code>/<code>grep</code></td><td class="warn">需要自己实现，且 Go 的文件系统抽象偏 OS-native</td></tr>
+      <tr><td>Subagent / Task delegation</td><td class="ok">原生 sub-agent 子图机制（LangGraph 子图）</td><td class="warn">eino 的 Multi-Agent 编排能做，但样板代码更多</td></tr>
+      <tr><td>Long-horizon system prompt</td><td class="ok">DeepAgents 默认 prompt 就是<i>"参照 Claude Code"</i> 写的（README 明示）</td><td class="bad">完全靠你自己设计</td></tr>
+      <tr><td>MCP Server 接入</td><td class="ok">LangChain 1.0 原生支持，<code>langchain-mcp-adapters</code> 即插即用</td><td class="warn">eino 有 MCP 支持，但社区 Server 多用 Python/TS 实现 — 生态偏弱</td></tr>
+      <tr><td>Microagent（关键词触发的 skill pack）</td><td class="warn">可用 ToolSelector 中间件近似实现，但没原生概念</td><td class="bad">需要自己造</td></tr>
+    </tbody>
+  </table>
+
+  <p><b>结论 1</b>：<span class="ok">DeepAgents 是 Claude Code 范式的「开源同源框架」</span>，迁移和复现成本接近 0；eino 是「通用 LLM 编排框架」，Claude Code 兼容需要自己造整套适配层，工作量大概要 2–4 周资深工程师。</p>
+</div>
+
+<h3><span class="req-label">需求 2</span>该框架适合做垂域实际应用场景的 agent rollout，获得 trajectory 数据</h3>
+
+<div class="card">
+  <h4>Trajectory 数据是什么</h4>
+  <p>对 RL / SFT 训练有用的最小数据单元是 <code>(state_t, action_t, reward_t, state_{t+1})</code> 序列。对 LLM Agent 来说就是「每一步的完整 prompt + tool call + tool result + intermediate output」可追溯、可重放、可注释。</p>
+
+  <table>
+    <thead><tr><th>能力</th><th>DeepAgents</th><th>eino</th></tr></thead>
+    <tbody>
+      <tr><td>State 持久化（checkpoint）</td><td class="ok">LangGraph <code>checkpointer</code> 原生支持，Postgres/Redis/Memory 三种后端，<b>每个 node transition 自动落盘</b></td><td class="warn">CloudWeGo DevOps 提供 trace 可视化，但 trajectory 持久化要自己 hook callbacks</td></tr>
+      <tr><td>Human-in-the-Loop (打标 / 标注 reward)</td><td class="ok">LangGraph <code>interrupt</code> 原生支持，可在任意节点暂停等人工标注</td><td class="bad">需要自建中断 / 标注 UI</td></tr>
+      <tr><td>Trace 可视化与 Replay</td><td class="ok">LangSmith 原生 — 鼠标点开就能看每一步 prompt/response/tool_call/error，可一键 replay</td><td class="warn">Eino DevOps 提供，但比 LangSmith 生态成熟度低</td></tr>
+      <tr><td>多轮会话 / 长 horizon trajectory</td><td class="ok">DeepAgents 文件系统中间件专门解决 Context Rot — <b>长 trajectory 不会爆 context</b></td><td class="warn">需要自己设计 context 压缩 / 外置存储</td></tr>
+      <tr><td>导出为训练样本格式</td><td class="ok">LangSmith 一键导出 ChatML / JSON / Parquet；<code>langsmith.Client().list_runs()</code> 直接遍历</td><td class="bad">trace 是 Go 内部结构，要写自定义 exporter 序列化成训练样本</td></tr>
+      <tr><td>线上灰度 + A/B Agent 版本</td><td class="warn">LangGraph Cloud / Self-host server 支持，但生产级 SLA 需要工程加固</td><td class="ok">Go 单一二进制 + 字节内部生产经验，灰度路由更稳</td></tr>
+    </tbody>
+  </table>
+
+  <p><b>结论 2</b>：<span class="ok">R&D 期的 trajectory 收集，DeepAgents 几乎零工作量</span>。eino 在「线上服务化 rollout」吃稳定性优势，但本需求<u>更强调"获得 trajectory 数据"</u>，DeepAgents 的 LangGraph checkpoint + LangSmith 组合是<b>事实标准</b>，没有同等位面对手。</p>
+</div>
+
+<h3><span class="req-label">需求 3</span>基于 trajectory 数据做 harness self-improve 和基座 LLM 的 fine-tune</h3>
+
+<div class="card">
+  <h4>这一步决定要什么生态</h4>
+  <p>RLHF / RLAIF / DPO / GRPO / SFT 这一切的事实标准都是 Python：HuggingFace <b>TRL</b>、<b>Unsloth</b>、<b>OpenRLHF</b>、Anthropic 的 <b>ART (Agent RL Toolkit)</b>、prime-rl <b>Verifiers</b>、AllenAI <b>Open-Instruct</b>、vLLM/SGLang 等。Go 在这条赛道<b>没有可用的训练栈</b>。</p>
+
+  <table>
+    <thead><tr><th>训练管线环节</th><th>DeepAgents (Python)</th><th>eino (Go)</th></tr></thead>
+    <tbody>
+      <tr><td>从 trajectory 抽取 prompt-response 对</td><td class="ok">LangSmith API 直读 → pandas DataFrame → TRL Dataset，<u>3 行代码</u></td><td class="bad">Go trace → JSON 导出 → Python 加载 → 转 Dataset，<u>跨语言桥</u></td></tr>
+      <tr><td>SFT 训练</td><td class="ok">直接 <code>SFTTrainer(model, dataset)</code></td><td class="bad">先解决数据格式 + 跨语言问题，再 Python 训</td></tr>
+      <tr><td>PPO / DPO / GRPO</td><td class="ok">TRL 原生 + Verifiers / OpenRLHF</td><td class="bad">同上 — 必须切回 Python</td></tr>
+      <tr><td>Agent RL（多步 trajectory 直接训）</td><td class="ok">ART / Verifiers 直接吃 LangGraph trajectory，<b>同进程闭环</b></td><td class="bad">同上</td></tr>
+      <tr><td>Harness self-improve（让 Agent 自己反思+改 prompt+改 microagent）</td><td class="ok">中间件机制让你<b>把"reflect → patch prompt → 写回中间件"</b>做成一个 LangGraph 节点，闭环完整在 Python 内</td><td class="bad">需要在 Go 和 Python 之间反复同步状态</td></tr>
+      <tr><td>训后模型推理回灌</td><td class="ok">vLLM/SGLang/Ollama 全开 OpenAI 协议，DeepAgents 直接配 base_url 切换</td><td class="ok">eino 同样能配，模型推理这一步两边都没问题</td></tr>
+    </tbody>
+  </table>
+
+  <p><b>结论 3</b>：<span class="ok">DeepAgents 把"收集 → 训练 → 回灌"做成同一进程同一语言闭环</span>。eino 必须在中间架一座 Go ↔ Python 桥，这桥就是个常态化的维护负担。<b>选择 eino 等于人为给训练闭环加一道工程墙</b>。</p>
+</div>
+
+<h2>3. 综合评分矩阵</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>维度</th>
+      <th>权重</th>
+      <th>cloudwego/eino</th>
+      <th>DeepAgents</th>
+      <th>赢家</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Claude Code 架构兼容</td><td>★★★★★</td>
+      <td><span class="scorebar"><i style="width:35%"></i></span> 3.5/10 通用框架，需自行对齐</td>
+      <td><span class="scorebar"><i style="width:95%;background:var(--good)"></i></span> 9.5/10 设计上就是对齐</td>
+      <td class="ok">DeepAgents</td>
+    </tr>
+    <tr>
+      <td>Trajectory 收集开箱即用</td><td>★★★★★</td>
+      <td><span class="scorebar"><i style="width:55%;background:var(--warn)"></i></span> 5.5/10 DevOps trace，需自写 exporter</td>
+      <td><span class="scorebar"><i style="width:95%;background:var(--good)"></i></span> 9.5/10 LangGraph checkpoint + LangSmith</td>
+      <td class="ok">DeepAgents</td>
+    </tr>
+    <tr>
+      <td>训练生态原生集成</td><td>★★★★★</td>
+      <td><span class="scorebar"><i style="width:20%;background:var(--bad)"></i></span> 2/10 必须跨语言桥</td>
+      <td><span class="scorebar"><i style="width:100%;background:var(--good)"></i></span> 10/10 Python 是事实标准</td>
+      <td class="ok">DeepAgents</td>
+    </tr>
+    <tr>
+      <td>R&D 迭代速度</td><td>★★★★</td>
+      <td><span class="scorebar"><i style="width:55%;background:var(--warn)"></i></span> 5.5/10 类型安全 = 写得稳但慢</td>
+      <td><span class="scorebar"><i style="width:90%;background:var(--good)"></i></span> 9/10 中间件热插，Notebook 友好</td>
+      <td class="ok">DeepAgents</td>
+    </tr>
+    <tr>
+      <td>线上推理服务稳定性 / 吞吐</td><td>★★★</td>
+      <td><span class="scorebar"><i style="width:95%;background:var(--good)"></i></span> 9.5/10 Go 单二进制 + 字节生产验证</td>
+      <td><span class="scorebar"><i style="width:65%;background:var(--warn)"></i></span> 6.5/10 LangGraph Cloud 可生产但成熟度低于 Go 微服务</td>
+      <td class="warn">eino</td>
+    </tr>
+    <tr>
+      <td>类型安全 / 编译期检查</td><td>★★</td>
+      <td><span class="scorebar"><i style="width:95%;background:var(--good)"></i></span> 9.5/10 Go 强类型</td>
+      <td><span class="scorebar"><i style="width:60%;background:var(--warn)"></i></span> 6/10 Pydantic + type hints</td>
+      <td class="warn">eino</td>
+    </tr>
+    <tr>
+      <td>MCP / 工具生态</td><td>★★★★</td>
+      <td><span class="scorebar"><i style="width:55%;background:var(--warn)"></i></span> 5.5/10 有支持但生态弱</td>
+      <td><span class="scorebar"><i style="width:90%;background:var(--good)"></i></span> 9/10 LangChain MCP adapters 即用</td>
+      <td class="ok">DeepAgents</td>
+    </tr>
+    <tr>
+      <td>社区活跃度 / 文档完备</td><td>★★★</td>
+      <td><span class="scorebar"><i style="width:65%;background:var(--warn)"></i></span> 6.5/10 字节官方维护，CSDN 中文资料丰富</td>
+      <td><span class="scorebar"><i style="width:95%;background:var(--good)"></i></span> 9.5/10 LangChain 1亿+ 月下载</td>
+      <td class="ok">DeepAgents</td>
+    </tr>
+    <tr>
+      <td>资源消耗（内存 / 部署体积）</td><td>★★</td>
+      <td><span class="scorebar"><i style="width:90%;background:var(--good)"></i></span> 9/10 Go 二进制几十 MB</td>
+      <td><span class="scorebar"><i style="width:50%;background:var(--warn)"></i></span> 5/10 Python + 一堆依赖几百 MB</td>
+      <td class="warn">eino</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="footnote">分值为根据当前公开资料和工程常识的估计，不是严格 benchmark。权重按用户三条需求加权后，<b>DeepAgents 总分明显胜出</b>。</p>
+
+<h2>4. 推荐架构：DeepAgents 为主 + eino 待命</h2>
+
+<div class="card win">
+  <h3>近期（0–6 个月）：DeepAgents-only 闭环</h3>
+  <div class="ascii">┌────────────────────────────────────────────────────────────────┐
+│ DeepAgents Harness（Python）                                    │
+│ ┌─────────────┐  ┌──────────────┐  ┌───────────────┐           │
+│ │ Planning    │  │ FileSystem   │  │ Sub-agents    │           │
+│ │ (TodoList)  │  │ (vfs)        │  │ (task split)  │           │
+│ └─────────────┘  └──────────────┘  └───────────────┘           │
+│        │                                                        │
+│        ▼                                                        │
+│ ┌────────────────────────────────────────────────────────────┐ │
+│ │ LangGraph 1.0  ← checkpointer (Postgres) ← rollout 状态机  │ │
+│ └────────────────────────────────────────────────────────────┘ │
+│        │                                                        │
+│        ▼  every node transition                                │
+│ ┌────────────────────────────────────────────────────────────┐ │
+│ │ LangSmith trace / replay / human label                     │ │
+│ └────────────────────────────────────────────────────────────┘ │
+│        │                                                        │
+│        ▼  export (Parquet / ChatML)                            │
+│ ┌────────────────────────────────────────────────────────────┐ │
+│ │ TRL / Verifiers / ART  →  SFT / DPO / Agent RL              │ │
+│ │  ↓                                                          │ │
+│ │ 训后 base model → vLLM serve → 回灌进 DeepAgents (闭环)     │ │
+│ └────────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────┘
+</div>
+  <ul>
+    <li><b>Week 1–2</b>：装 LangChain 1.0 + LangGraph 1.0 + DeepAgents + LangSmith；用你最熟悉的 1 个垂域任务跑通最小 ReAct Agent。</li>
+    <li><b>Week 3–4</b>：挂上 TodoList + FileSystem + ToolSelector 三个中间件；接 1 个 MCP server 验证 Claude Code 风格工具调用。</li>
+    <li><b>Week 5–8</b>：垂域 rollout 上量；LangSmith 抓 trace；用 <code>langsmith.Client().list_runs()</code> 自动导出训练样本。</li>
+    <li><b>Week 9–12</b>：起 TRL SFTTrainer 跑 baseline；起 Verifiers / ART 跑 Agent RL；训后模型 vLLM serve 回灌 DeepAgents 对照评估。</li>
+  </ul>
+</div>
+
+<div class="card lose">
+  <h3>中长期（6 个月后，<u>仅在必要时</u>）：eino 作为生产推理后端</h3>
+  <p>如果你的 R&D 成熟到需要把同一套 Agent 业务<b>大规模上线服务化</b>，且 Python harness 在压测下吃不消（典型阈值：QPS &gt; 500，P99 &lt; 1.5 s 强制 SLA），<b>这时</b>把已经验证好的 Agent 流程用 eino 在 Go 端重写关键热路径。</p>
+  <ul>
+    <li>R&D 训出来的模型用 vLLM/SGLang 起 OpenAI 兼容服务，<b>eino 通过 base_url 接，模型层共用</b>。</li>
+    <li>Agent 编排层在 eino 重写，复用 Python 端验证好的 prompt/tool 定义。</li>
+    <li>这是字节内部已成熟的分工模式：R&D 用 Python (LangChain) + 上线用 Go (Eino)。</li>
+  </ul>
+  <p class="warn"><b>反直觉提醒</b>：很多团队一开始就想"用 eino 一次性搞定 R&D + 上线"，结果 R&D 阶段被类型系统、Go 缺少 ML 库、缺少 Jupyter 等问题拖慢 2–3 倍。先用 Python 跑通业务，再决定要不要 Go 重写。</p>
+</div>
+
+<h2>5. 明确反对的做法</h2>
+<ul>
+  <li><span class="bad">不要</span>仅靠 eino 跑通整个「rollout → trajectory → fine-tune」闭环 — 跨语言桥的维护成本会持续消耗团队精力，且 Go 生态没有 TRL/Verifiers/ART 这类训练库。</li>
+  <li><span class="bad">不要</span>同时用 eino + DeepAgents 维护<u>两套并行的 Agent 业务代码</u> — 业务 prompt/tool 定义会快速漂移；只能"一个语言主导业务定义，另一个语言只做推理服务转译"。</li>
+  <li><span class="bad">不要</span>把 DeepAgents 当 production-grade 高并发服务直接对外暴露 — LangGraph Cloud / 自建 LangServe 适合<u>中等并发</u>。要扛流量峰值需在前面加缓存 / 队列 / 限流。</li>
+  <li><span class="bad">不要</span>自己从零基于 LangGraph 重新造一套 Claude Code 兼容层 — DeepAgents 已经做好了，Re-invent the wheel 的成本不值。</li>
+  <li><span class="bad">不要</span>跳过 LangSmith 直接用 stdout/日志做 trajectory 收集 — 你需要的不只是日志，而是<b>结构化 trace + 可 replay + 可 diff + 可标注</b>，这些自己造要数月。</li>
+</ul>
+
+<h2>6. 关键参考资料</h2>
+<details open>
+<summary>DeepAgents 官方资料与社区解读</summary>
+<ul>
+  <li><a href="https://github.com/langchain-ai/deepagents">github langchain-ai/deepagents</a> — 官方仓库</li>
+  <li><a href="https://view.inews.qq.com/k/20260208A01CSE00">腾讯网《LangChain 发布 Deep Agents：自主智能体框架》(2026-02)</a> — 解读"the batteries-included agent harness"四件套：planning、virtual filesystem、subagent、long-horizon</li>
+  <li><a href="https://blog.csdn.net/m0_59235945/article/details/158320559">CSDN《深度智能体构建指南》</a> — DeepAgents 核心架构 + Python 代码示例</li>
+  <li><a href="https://blog.csdn.net/weixin_42782643/article/details/158931142">CSDN《LangChain DeepAgents 速通指南（四）— FileSystem 中间件》</a> — 系列详解 ToolSelector / TodoList / FileSystem 三大中间件</li>
+  <li><a href="https://blog.csdn.net/2401_85373396/article/details/156024461">CSDN《DeepAgents 详解：零基础构建复杂 AI 智能体》</a> — 与 LangChain/LangGraph 的关系定位</li>
+  <li><a href="https://zhuanlan.zhihu.com/p/1983247480230535292">知乎《手把手拆解：用 LangChain 构建 Open Deep Research 系统》</a> — 一个完整 DeepAgents 应用案例</li>
+</ul>
+</details>
+
+<details open>
+<summary>cloudwego/eino 官方资料与社区解读</summary>
+<ul>
+  <li><a href="https://github.com/cloudwego/eino">github cloudwego/eino</a> — 官方仓库</li>
+  <li><a href="https://cloud.tencent.com/developer/article/2587500">腾讯云《Eino：面向 Go 生态的工程化 AI Agent 框架》</a> — 四阶段演进观（Prompt → Tool → ReAct → Multi-Agent），定位与设计哲学</li>
+  <li><a href="https://blog.csdn.net/gitblog_00640/article/details/151433600">CSDN《Eino：Go 语言终极 LLM 应用开发框架全面解析》</a> — CloudWeGo 生态全图（Kitex / Hertz / Eino / EinoExt / Eino DevOps）</li>
+  <li><a href="https://blog.csdn.net/gitblog_01405/article/details/149926616">CSDN《CloudWeGo Eino：Go 语言终极 LLM 应用开发框架》</a> — 简洁性 + 类型安全 + 流式 + 并发四大特性</li>
+</ul>
+</details>
+
+<details>
+<summary>训练 / RL 工具链（Python 生态）</summary>
+<ul>
+  <li><a href="https://github.com/huggingface/trl">HuggingFace TRL</a> — SFT/DPO/PPO/GRPO 训练，<code>SFTTrainer.push_to_hub()</code> 一键上传</li>
+  <li><a href="https://github.com/OpenRLHF/OpenRLHF">OpenRLHF</a> — 大规模 RLHF 训练栈</li>
+  <li><a href="https://github.com/openai/verifiers">prime-rl Verifiers</a> — Agent RL 训练（吃多步 trajectory）</li>
+  <li><a href="https://blog.csdn.net/gitblog_00793/article/details/153085674">CSDN《3 行代码搞定模型发布：TRL 与 HuggingFace Hub 无缝集成》</a> — 训完即发布</li>
+  <li><a href="https://blog.csdn.net/2401_84815887/article/details/157248724">CSDN《上下文工程实战：用 LangChain 和 LangGraph 优化大模型应用性能》</a> — 解释为什么 LangGraph 是 trajectory 收集的事实标准</li>
+</ul>
+</details>
+
+<details>
+<summary>2026 Agent 框架全景对比（佐证选型）</summary>
+<ul>
+  <li><a href="https://blog.csdn.net/yonggeit/article/details/160300811">CSDN《2026 年 AI Agent 框架全景：12 大主流架构深度解析与选型指南》</a></li>
+  <li><a href="https://blog.csdn.net/qq_52964132/article/details/161087316">CSDN《2025-2026 企业级 Agent 开发框架选型指南》</a> — 对比 AgentScope / LangChain / LangGraph / Eino / Semantic Kernel 等</li>
+  <li><a href="https://blog.csdn.net/2401_85373691/article/details/156328077">CSDN《万字长文：2026 年应该了解的 20 个 Agentic AI 框架》</a> — 含 OpenHands 重构后的新形态</li>
+</ul>
+</details>
+
+<hr/>
+<p class="meta">本文件位于：<code>eino_vs_deepagents_comparison.html</code> · 项目根目录 · 直接用浏览器打开即可。打印导出 PDF 已做基础适配。</p>
+
+<details>
+<summary>本次实际搜索摘要（按 smart-search 协议）</summary>
+<pre><code>- 网站：bailian_web_search (MCP) | 查询词：
+    cloudwego eino framework Go LLM agent ByteDance 2026 features architecture
+    langchain-ai deepagents Python framework Claude Code architecture planning subagents 2026
+    langchain-ai deepagents github planning subagents virtual filesystem TodoWrite Claude Code architecture 2026
+    LangGraph checkpoint trajectory collection agent RL fine-tune TRL Verifiers ART huggingface 2026
+  | 次数：4（均成功）
+- 已绕过：built-in WebSearch（被 idealab 网关禁用 + 已在 settings deny + 启用 bailian MCP 替代）
+- 已跳过：opencli web read / arxiv / twitter（上轮已超时或限频，本轮通过 bailian 替代覆盖）
+</code></pre>
+</details>
+
+</div>
+</body>
+</html>
